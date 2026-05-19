@@ -20,8 +20,9 @@ bot/
   services/
     captcha.py           # math challenges
     invites.py           # single-use Telegram invite links
-migrations/
-  001_init.sql           # run once in Supabase SQL editor
+supabase/
+  config.toml            # project ref
+  migrations/            # auto-applied via Supabase ↔ GitHub integration on push
 ```
 
 ## Local run
@@ -29,7 +30,7 @@ migrations/
 cp .env.example .env       # fill in tokens + DATABASE_URL
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-psql "$DATABASE_URL" -f migrations/001_init.sql
+# Migrations auto-apply on push via Supabase GitHub integration.
 python -m bot.main
 ```
 
