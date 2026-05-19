@@ -8,7 +8,8 @@ from telegram.ext import Application
 
 from .config import load_config
 from .db.pool import init_pool, close_pool
-from .handlers import onboarding
+from .handlers import onboarding, moderation
+from .services import jobs
 
 
 async def _post_init(app: Application) -> None:
@@ -37,6 +38,8 @@ def build_application() -> Application:
     )
     app.bot_data["config"] = cfg
     onboarding.register(app)
+    moderation.register(app)
+    jobs.register(app)
     return app
 
 

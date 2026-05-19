@@ -64,6 +64,24 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Access denied.")
         return
 
+    # Re-verification path: user is post-Strike-1 and must re-affirm protocols
+    user_row = await repo.get_user(u.id)
+    if user_row and user_row.get("must_reverify"):
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        ctx.user_data["state"] = "awaiting_reverify"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✓ I Re-Affirm the Core Protocols", callback_data="reverify_accept")
+        ]])
+        await update.message.reply_text(
+            "*Re-verification required*\n\n"
+            "You were placed in read-only mode following a protocol infraction. "
+            "To restore write access, re-affirm the core protocols:\n\n"
+            + MANIFESTO.split("\n\n", 1)[1],
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=kb,
+        )
+        return
+
     challenge = generate_math_challenge()
     await repo.set_captcha(u.id, challenge.answer, cfg.captcha_ttl_seconds)
     ctx.user_data["state"] = "awaiting_captcha"
@@ -221,10 +239,53 @@ async def on_certify_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
 
 # --- Registration ----------------------------------------------------------
 
+async def on_reverify_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    await q.answer()
+    u = q.from_user
+    cfg: Config = ctx.bot_data["config"]
+
+    if ctx.user_data.get("state") != "awaiting_reverify":
+        await q.edit_message_text("Session expired. Send /start to begin again.")
+        return
+
+    await repo.mark_protocols_accepted(u.id)  # clears must_reverify
+
+    # Restore write permissions in the Floor immediately
+    try:
+        from telegram import ChatPermissions
+        await ctx.bot.restrict_chat_member(
+            chat_id=cfg.tier2_group_id,
+            user_id=u.id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_audios=True,
+                can_send_documents=True,
+                can_send_photos=True,
+                can_send_videos=True,
+                can_send_video_notes=True,
+                can_send_voice_notes=True,
+                can_send_polls=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+            ),
+        )
+    except Exception as e:
+        log.warning("could not restore permissions for %s: %s", u.id, e)
+
+    await repo.clear_mute(u.id)
+    ctx.user_data.pop("state", None)
+    await q.edit_message_text(
+        "*Re-verified.* Write access restored. Return to the Floor and operate within protocol.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 def register(application) -> None:
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("certify", cmd_certify))
     application.add_handler(CallbackQueryHandler(on_accept_protocols, pattern="^accept_protocols$"))
+    application.add_handler(CallbackQueryHandler(on_reverify_accept, pattern="^reverify_accept$"))
     application.add_handler(CallbackQueryHandler(on_certify_button, pattern="^certify_(agree|deny)_\\d+$"))
     # CAPTCHA: any private text message that isn't a command
     application.add_handler(MessageHandler(
