@@ -56,7 +56,8 @@ def build_application() -> Application:
 
 def main() -> None:
     app = build_application()
-    app.run_polling(allowed_updates=None, drop_pending_updates=True)
+    # Note: keep drop_pending_updates=False so users' messages survive redeploys.
+    app.run_polling(allowed_updates=None, drop_pending_updates=False)
 
 
 if __name__ == "__main__":
