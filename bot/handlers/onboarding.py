@@ -1,9 +1,8 @@
-"""Phase 1 (Airlock) + Phase 2 (Behavioral Gate) handlers."""
+"""Onboarding handlers: /start (entry) and /certify (full membership)."""
 from __future__ import annotations
 
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 )
@@ -15,40 +14,45 @@ from ..services.invites import issue_single_use_invite
 
 log = logging.getLogger(__name__)
 
-# --- copy ------------------------------------------------------------------
+# --- copy (plain language, no markdown) -----------------------------------
 
-MANIFESTO = (
-    "*normal people :: core protocols*\n\n"
-    "`1.` *Help Others* — All contributions prioritize harm reduction, safety, "
-    "and peer-to-peer survival logistics.\n"
-    "`2.` *Do Not Lie* — Absolute data integrity. Exact measurements. "
-    "Verifiable data is separated from personal theory.\n"
-    "`3.` *We Are All Equals* — No gurus. No clout. Every protocol and theory "
-    "is subject to peer review.\n\n"
-    "Acceptance is binding."
+WELCOME = (
+    "Welcome to normal people.\n\n"
+    "This is a community for the betterment of everyone. "
+    "Before you can come in, there are three simple agreements you need to accept."
 )
 
+THREE_AGREEMENTS = (
+    "1. Everyone is equal. No one is above anyone else here.\n"
+    "2. You will not harm. Not in your words, not in your actions, not in what you share.\n"
+    "3. You are here to help others. This is a place to give, not just take.\n\n"
+    "If you want a place here, you have to accept these. They are not negotiable."
+)
+
+REVERIFY_INTRO = (
+    "You were put in read-only mode for breaking one of the three agreements. "
+    "To get your voice back, agree to them again:"
+)
+
+# Three simple agreement prompts, one per step
 CERTIFY_PROMPTS = [
     (
-        "*Protocol 1 — Harm Reduction*\n\n"
-        "This space operates on peer-to-peer survival and logistics. "
-        "We do not post to flex; we post to inform.\n\n"
-        "Do you agree to prioritize harm reduction and provide actionable, "
-        "safe information to your peers?"
+        "First agreement: everyone is equal.\n\n"
+        "No gurus, no clout, no one above anyone. Every idea here is open to "
+        "respectful peer review, including yours.\n\n"
+        "Do you accept this?"
     ),
     (
-        "*Protocol 2 — Data Integrity*\n\n"
-        "Misinformation here carries real-world consequences. Ego has no place "
-        "in the lab or the library.\n\n"
-        "Do you commit to clearly separating verifiable data from personal "
-        "theory, and to never misrepresent your experiences or sources?"
+        "Second agreement: you will not harm.\n\n"
+        "Not with your words, not with what you share, not with bad information. "
+        "If you don't know something for sure, say so.\n\n"
+        "Do you accept this?"
     ),
     (
-        "*Protocol 3 — Radical Equality*\n\n"
-        "There are no gurus in this group. Every protocol, source, and theory "
-        "is subject to respectful peer review.\n\n"
-        "Do you accept that you are an equal participant in a shared ecosystem, "
-        "and leave all notions of internet clout at the door?"
+        "Third agreement: you are here to help others.\n\n"
+        "This is a place to give, not just take. Share what you know honestly, "
+        "and look out for the people around you.\n\n"
+        "Do you accept this?"
     ),
 ]
 
@@ -61,23 +65,18 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     await repo.upsert_user(u.id, u.username, u.first_name)
     if await repo.is_banned(u.id):
-        await update.message.reply_text("Access denied.")
+        await update.message.reply_text("You can't come back here.")
         return
 
-    # Re-verification path: user is post-Strike-1 and must re-affirm protocols
+    # Re-verification path: user was muted and needs to re-affirm
     user_row = await repo.get_user(u.id)
     if user_row and user_row.get("must_reverify"):
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         ctx.user_data["state"] = "awaiting_reverify"
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✓ I Re-Affirm the Core Protocols", callback_data="reverify_accept")
+            InlineKeyboardButton("I accept, again", callback_data="reverify_accept")
         ]])
         await update.message.reply_text(
-            "*Re-verification required*\n\n"
-            "You were placed in read-only mode following a protocol infraction. "
-            "To restore write access, re-affirm the core protocols:\n\n"
-            + MANIFESTO.split("\n\n", 1)[1],
-            parse_mode=ParseMode.MARKDOWN,
+            REVERIFY_INTRO + "\n\n" + THREE_AGREEMENTS,
             reply_markup=kb,
         )
         return
@@ -87,10 +86,11 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     ctx.user_data["state"] = "awaiting_captcha"
 
     await update.message.reply_text(
-        "normal people :: gateway\n\n"
-        "Verify you are human. Reply with the answer:\n\n"
+        f"{WELCOME}\n\n"
+        "First, a quick check to make sure you're a person. "
+        "Reply with the answer:\n\n"
         f"  {challenge.question}\n\n"
-        f"Expires in {cfg.captcha_ttl_seconds // 60} minutes.",
+        f"You have {cfg.captcha_ttl_seconds // 60} minutes."
     )
 
 
@@ -98,7 +98,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_captcha_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if ctx.user_data.get("state") != "awaiting_captcha":
-        return  # not in this state; ignore
+        return
     u = update.effective_user
     submitted = update.message.text or ""
 
@@ -106,20 +106,23 @@ async def on_captcha_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
     if not ok:
         if remaining > 0:
             await update.message.reply_text(
-                f"Incorrect. {remaining} attempt(s) remaining. Send /start to retry."
+                f"That's not right. {remaining} attempts left. Or send /start to try a new question."
             )
         else:
             ctx.user_data.pop("state", None)
             await update.message.reply_text(
-                "CAPTCHA failed. Send /start to receive a new challenge."
+                "Too many wrong answers. Send /start to try again."
             )
         return
 
     ctx.user_data["state"] = "awaiting_manifesto"
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✓ I Accept the Core Protocols", callback_data="accept_protocols")
+        InlineKeyboardButton("I accept", callback_data="accept_protocols")
     ]])
-    await update.message.reply_text(MANIFESTO, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    await update.message.reply_text(
+        "Good. Now, the three agreements:\n\n" + THREE_AGREEMENTS,
+        reply_markup=kb,
+    )
 
 
 # --- Manifesto acceptance --------------------------------------------------
@@ -131,7 +134,7 @@ async def on_accept_protocols(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
     cfg: Config = ctx.bot_data["config"]
 
     if ctx.user_data.get("state") != "awaiting_manifesto":
-        await q.edit_message_text("Session expired. Send /start to begin again.")
+        await q.edit_message_text("That offer has expired. Send /start to begin again.")
         return
 
     await repo.mark_protocols_accepted(u.id)
@@ -145,31 +148,32 @@ async def on_accept_protocols(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         )
     except Exception as e:
         log.exception("invite generation failed")
-        await q.edit_message_text(f"Failed to issue invite: {e}")
+        await q.edit_message_text(f"Something went wrong issuing your invite: {e}")
         return
 
     ctx.user_data["state"] = "in_tier1"
     await q.edit_message_text(
-        f"*Access granted :: Tier 1 — The Library*\n\n"
-        f"Single-use link (valid {cfg.invite_ttl_seconds // 60} min):\n{invite}\n\n"
-        f"Read the pinned baseline. When ready to speak, return here and send /certify.",
-        parse_mode=ParseMode.MARKDOWN,
+        "Thank you. Here's your way in.\n\n"
+        f"This link works once and only for the next {cfg.invite_ttl_seconds // 60} minutes:\n"
+        f"{invite}\n\n"
+        "It will take you to a quiet reading space. Look around. "
+        "When you're ready to speak with everyone else, come back here and send /certify.",
         disable_web_page_preview=True,
     )
 
 
-# --- /certify (Phase 2) ----------------------------------------------------
+# --- /certify --------------------------------------------------------------
 
 async def cmd_certify(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     u = update.effective_user
     user = await repo.get_user(u.id)
     if not user or not user.get("accepted_protocols_at"):
         await update.message.reply_text(
-            "You must complete /start and accept the core protocols first."
+            "You need to send /start and accept the three agreements first."
         )
         return
     if user.get("certified_at"):
-        await update.message.reply_text("You are already certified for Tier 2.")
+        await update.message.reply_text("You already have full access. You're good.")
         return
 
     ctx.user_data["certify_step"] = 0
@@ -178,28 +182,27 @@ async def cmd_certify(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _send_certify_prompt(update, ctx, step: int) -> None:
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✓ I Agree",    callback_data=f"certify_agree_{step}"),
-        InlineKeyboardButton("✗ I Disagree", callback_data=f"certify_deny_{step}"),
+        InlineKeyboardButton("Yes",  callback_data=f"certify_agree_{step}"),
+        InlineKeyboardButton("No",   callback_data=f"certify_deny_{step}"),
     ]])
     text = CERTIFY_PROMPTS[step]
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        await update.callback_query.edit_message_text(text, reply_markup=kb)
     else:
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        await update.message.reply_text(text, reply_markup=kb)
 
 
 async def on_certify_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     await q.answer()
-    data = q.data  # certify_agree_0 / certify_deny_1 etc
-    parts = data.split("_")
+    parts = q.data.split("_")
     action, step = parts[1], int(parts[2])
 
     if action == "deny":
         ctx.user_data.pop("certify_step", None)
         await q.edit_message_text(
-            "Certification aborted. You remain in Tier 1 read-only. "
-            "Send /certify when ready to commit."
+            "That's okay. You can still read everything in the quiet space. "
+            "When you're ready, send /certify again."
         )
         return
 
@@ -209,7 +212,7 @@ async def on_certify_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         await _send_certify_prompt(update, ctx, step=next_step)
         return
 
-    # All 3 agreed → Tier 2 invite
+    # All 3 agreed → full access
     u = q.from_user
     cfg: Config = ctx.bot_data["config"]
     await repo.mark_certified(u.id)
@@ -223,20 +226,21 @@ async def on_certify_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         )
     except Exception as e:
         log.exception("tier2 invite failed")
-        await q.edit_message_text(f"Failed to issue Tier 2 invite: {e}")
+        await q.edit_message_text(f"Something went wrong issuing your invite: {e}")
         return
 
     ctx.user_data.pop("certify_step", None)
     await q.edit_message_text(
-        f"*Certified :: Tier 2 — The Floor*\n\n"
-        f"Single-use link (valid {cfg.invite_ttl_seconds // 60} min):\n{invite}\n\n"
-        f"Operate within topic boundaries. Read the pinned thread index first.",
-        parse_mode=ParseMode.MARKDOWN,
+        "Welcome in. You have full access now.\n\n"
+        f"This link works once and only for the next {cfg.invite_ttl_seconds // 60} minutes:\n"
+        f"{invite}\n\n"
+        "Take a look at the topics, see what people are talking about, "
+        "and add what you can. Help others. Don't lie. Treat everyone as your equal.",
         disable_web_page_preview=True,
     )
 
 
-# --- Registration ----------------------------------------------------------
+# --- Re-verification after a mute -----------------------------------------
 
 async def on_reverify_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -245,14 +249,12 @@ async def on_reverify_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     cfg: Config = ctx.bot_data["config"]
 
     if ctx.user_data.get("state") != "awaiting_reverify":
-        await q.edit_message_text("Session expired. Send /start to begin again.")
+        await q.edit_message_text("That offer has expired. Send /start to begin again.")
         return
 
     await repo.mark_protocols_accepted(u.id)  # clears must_reverify
 
-    # Restore write permissions in the Floor immediately
     try:
-        from telegram import ChatPermissions
         await ctx.bot.restrict_chat_member(
             chat_id=cfg.tier2_group_id,
             user_id=u.id,
@@ -275,10 +277,12 @@ async def on_reverify_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     await repo.clear_mute(u.id)
     ctx.user_data.pop("state", None)
     await q.edit_message_text(
-        "*Re-verified.* Write access restored. Return to the Floor and operate within protocol.",
-        parse_mode=ParseMode.MARKDOWN,
+        "Thank you. You have your voice back. "
+        "Go back to the group and keep helping."
     )
 
+
+# --- Registration ----------------------------------------------------------
 
 def register(application) -> None:
     application.add_handler(CommandHandler("start", cmd_start))
@@ -286,7 +290,6 @@ def register(application) -> None:
     application.add_handler(CallbackQueryHandler(on_accept_protocols, pattern="^accept_protocols$"))
     application.add_handler(CallbackQueryHandler(on_reverify_accept, pattern="^reverify_accept$"))
     application.add_handler(CallbackQueryHandler(on_certify_button, pattern="^certify_(agree|deny)_\\d+$"))
-    # CAPTCHA: any private text message that isn't a command
     application.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
         on_captcha_reply,

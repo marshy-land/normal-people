@@ -1,19 +1,19 @@
-"""Phase 3 — Two-strike moderation protocol.
+"""Two-strike moderation.
 
-Commands (admin-only, reply-to):
-    /warn1   Protocol 1: Harm Reduction
-    /warn2   Protocol 2: Data Integrity
-    /warn3   Protocol 3: Performative Ego
+Admin commands (reply to the offending message):
+    /warn1   For causing harm
+    /warn2   For dishonesty or careless information
+    /warn3   For treating someone as less than equal
 
-Strike 1: delete message + 24h mute + cold log post + must_reverify flag
-Strike 2: global ban + scrub recent messages + sync to Library + silent removal
+First strike: message deleted, 24h mute, public note, must re-accept the three
+agreements to get voice back.
+Second strike: removed from everywhere, recent messages cleaned up, no notice.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
 from telegram import Update, ChatPermissions
-from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 from ..config import Config
@@ -21,10 +21,11 @@ from ..db import repo
 
 log = logging.getLogger(__name__)
 
-PROTOCOL_LABELS = {
-    1: "Protocol 1: Harm Reduction",
-    2: "Protocol 2: Data Integrity",
-    3: "Protocol 3: Performative Ego",
+# Plain-language reasons aligned to the three agreements.
+AGREEMENT_LABELS = {
+    1: "causing harm",
+    2: "being dishonest or careless with information",
+    3: "treating someone as less than equal",
 }
 
 
@@ -49,15 +50,6 @@ def _excerpt(text: str | None, limit: int = 200) -> str:
     return (text[:limit] + "…") if len(text) > limit else text
 
 
-def _escape_md(text: str) -> str:
-    """Escape characters that have meaning in Telegram Markdown V1."""
-    if not text:
-        return ""
-    for ch in ("_", "*", "`", "["):
-        text = text.replace(ch, "\\" + ch)
-    return text
-
-
 # --- /warn handler factory -------------------------------------------------
 
 def _make_warn_handler(protocol: int):
@@ -72,7 +64,7 @@ def _make_warn_handler(protocol: int):
 
         if not msg.reply_to_message:
             try:
-                await msg.reply_text("Reply to the offending message with /warnN.")
+                await msg.reply_text("Reply to the message you're warning about with /warn1, /warn2, or /warn3.")
             except Exception:
                 pass
             return
@@ -133,20 +125,16 @@ async def _strike_one(ctx, chat_id: int, thread_id: int | None,
 
     await repo.set_mute(offender.id, until)
 
-    raw_handle = f"@{offender.username}" if offender.username else (offender.first_name or str(offender.id))
-    handle = _escape_md(raw_handle)
+    handle = f"@{offender.username}" if offender.username else (offender.first_name or "Someone")
     log_text = (
-        "⚠️ *SYSTEM LOG: INFRACTION DETECTED*\n"
-        f"`User:` {handle}\n"
-        f"`Violation:` {PROTOCOL_LABELS[protocol]}\n"
-        "`Action:` Message deleted. User placed in Read-Only mode for 24 hours. "
-        "This environment requires objective focus on the subject, not the user."
+        f"{handle}'s message was removed for {AGREEMENT_LABELS[protocol]}. "
+        "They can read but not speak here for 24 hours. "
+        "After that, they can come back if they agree to the three rules again."
     )
     try:
         await ctx.bot.send_message(
             chat_id=chat_id,
             text=log_text,
-            parse_mode=ParseMode.MARKDOWN,
             message_thread_id=thread_id,
         )
     except Exception as e:
