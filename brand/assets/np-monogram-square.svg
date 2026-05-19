@@ -1,24 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- np monogram, square avatar variant. centered as a unit on paper field. -->
+  <!-- np monogram, square avatar.
+       Square draws first (below). Circle draws second (on top, overlapping).
+       Combined centroid (mass-weighted) = (256, 256). -->
   <rect width="512" height="512" fill="#EDE9E0"/>
-  <!-- The combined "circle + square" unit spans roughly 360px wide. Center it. -->
-  <!-- circle (n), left half -->
-  <circle cx="180" cy="256" r="110" fill="#7A3B2E"/>
-  <text x="180" y="320"
-        font-family="Inter, system-ui, sans-serif"
-        font-size="200"
-        font-weight="500"
-        letter-spacing="-0.04em"
-        text-anchor="middle"
-        fill="#EDE9E0">n</text>
-  <!-- square (p), right half, overlapping -->
-  <rect x="252" y="146" width="220" height="220" rx="12" fill="#B68A2E"/>
-  <text x="362" y="320"
+
+  <!-- square (p), underneath, lower-right of center -->
+  <rect x="186" y="177" width="220" height="220" rx="12" fill="#B68A2E"/>
+  <text x="296" y="351"
         font-family="Inter, system-ui, sans-serif"
         font-size="200"
         font-weight="500"
         letter-spacing="-0.04em"
         text-anchor="middle"
         fill="#EDE9E0">p</text>
+
+  <!-- circle (n), on top, upper-left of center -->
+  <circle cx="206" cy="217" r="110" fill="#7A3B2E"/>
+  <text x="206" y="281"
+        font-family="Inter, system-ui, sans-serif"
+        font-size="200"
+        font-weight="500"
+        letter-spacing="-0.04em"
+        text-anchor="middle"
+        fill="#EDE9E0">n</text>
 </svg>

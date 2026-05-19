@@ -1,23 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="512" viewBox="0 0 1024 512">
-  <!-- np monogram, horizontal lockup variant -->
+  <!-- np monogram, horizontal lockup. Mass-centered on (512, 256). -->
   <rect width="1024" height="512" fill="#EDE9E0"/>
-  <!-- circle holds n, on the left -->
-  <circle cx="380" cy="256" r="180" fill="#7A3B2E"/>
-  <text x="380" y="362"
-        font-family="Inter, system-ui, sans-serif"
-        font-size="340"
-        font-weight="500"
-        letter-spacing="-0.04em"
-        text-anchor="middle"
-        fill="#EDE9E0">n</text>
-  <!-- square holds p, overlapping the circle on the right -->
-  <rect x="510" y="76" width="360" height="360" rx="20" fill="#B68A2E"/>
-  <text x="690" y="362"
+
+  <!-- square (p), underneath -->
+  <rect x="398" y="127" width="360" height="360" rx="20" fill="#B68A2E"/>
+  <text x="578" y="412"
         font-family="Inter, system-ui, sans-serif"
         font-size="340"
         font-weight="500"
         letter-spacing="-0.04em"
         text-anchor="middle"
         fill="#EDE9E0">p</text>
+
+  <!-- circle (n), on top -->
+  <circle cx="428" cy="192" r="180" fill="#7A3B2E"/>
+  <text x="428" y="297"
+        font-family="Inter, system-ui, sans-serif"
+        font-size="340"
+        font-weight="500"
+        letter-spacing="-0.04em"
+        text-anchor="middle"
+        fill="#EDE9E0">n</text>
 </svg>
