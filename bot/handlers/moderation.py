@@ -64,7 +64,7 @@ def _make_warn_handler(protocol: int):
 
         if not msg.reply_to_message:
             try:
-                await msg.reply_text("Reply to the message you're warning about with /warn1, /warn2, or /warn3.")
+                await msg.reply_text("reply to the message you're warning about with /warn1, /warn2, or /warn3.")
             except Exception:
                 pass
             return
@@ -125,11 +125,11 @@ async def _strike_one(ctx, chat_id: int, thread_id: int | None,
 
     await repo.set_mute(offender.id, until)
 
-    handle = f"@{offender.username}" if offender.username else (offender.first_name or "Someone")
+    handle = f"@{offender.username}" if offender.username else (offender.first_name or "someone")
     log_text = (
         f"{handle}'s message was removed for {AGREEMENT_LABELS[protocol]}. "
-        "They can read but not speak here for 24 hours. "
-        "After that, they can come back if they agree to the three rules again."
+        "they can read but not speak here for 24 hours. "
+        "after that, they can come back if they agree to the three rules again."
     )
     try:
         await ctx.bot.send_message(
