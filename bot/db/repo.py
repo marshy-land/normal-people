@@ -403,3 +403,53 @@ async def get_users_for_inactivity_sweep(demoted_days: int) -> list[dict]:
             """,
         )
         return [dict(r) for r in rows]
+
+
+# -- ANTI-LURK testing helpers ---------------------------------------------
+
+async def get_lifecycle_snapshot(user_id: int) -> Optional[dict]:
+    """Full lifecycle dump for diagnostics."""
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            select user_id, username, first_name, current_tier, is_banned,
+                   joined_floor_at, intro_completed_at, last_floor_msg_at,
+                   activity_pinged_at, demoted_at,
+                   strike_count, last_strike_at,
+                   accepted_protocols_at, certified_at,
+                   created_at
+              from np_users
+             where user_id = $1
+            """,
+            user_id,
+        )
+        return dict(row) if row else None
+
+
+async def force_backdate(
+    user_id: int,
+    *,
+    joined_floor_minus_hours: Optional[int] = None,
+    last_floor_msg_minus_days: Optional[int] = None,
+    activity_pinged_minus_days: Optional[int] = None,
+    demoted_minus_days: Optional[int] = None,
+    clear_intro: bool = False,
+) -> None:
+    """Push timestamps backwards for testing the lifecycle jobs."""
+    updates = []
+    params: list = [user_id]
+    if joined_floor_minus_hours is not None:
+        updates.append(f"joined_floor_at = now() - interval '{int(joined_floor_minus_hours)} hours'")
+    if last_floor_msg_minus_days is not None:
+        updates.append(f"last_floor_msg_at = now() - interval '{int(last_floor_msg_minus_days)} days'")
+    if activity_pinged_minus_days is not None:
+        updates.append(f"activity_pinged_at = now() - interval '{int(activity_pinged_minus_days)} days'")
+    if demoted_minus_days is not None:
+        updates.append(f"demoted_at = now() - interval '{int(demoted_minus_days)} days'")
+    if clear_intro:
+        updates.append("intro_completed_at = null")
+    if not updates:
+        return
+    sql = "update np_users set " + ", ".join(updates) + " where user_id = $1"
+    async with get_pool().acquire() as conn:
+        await conn.execute(sql, *params)

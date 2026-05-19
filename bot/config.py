@@ -55,7 +55,7 @@ def load_config() -> Config:
         mod_review_chat_id=int(os.getenv("MOD_REVIEW_CHAT_ID", "0")),
         home_topic_id=int(os.getenv("HOME_TOPIC_ID", "14")),
         intro_grace_hours=int(os.getenv("INTRO_GRACE_HOURS", "24")),
-        silent_ping_days=int(os.getenv("SILENT_PING_DAYS", "30")),
+        silent_ping_days=int(os.getenv("SILENT_PING_DAYS", "8")),
         silent_demote_days=int(os.getenv("SILENT_DEMOTE_DAYS", "7")),
         inactivity_remove_days=int(os.getenv("INACTIVITY_REMOVE_DAYS", "60")),
     )

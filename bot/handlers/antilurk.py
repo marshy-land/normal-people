@@ -9,9 +9,10 @@ Phase 5 of the moderation system. Enforces:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from telegram import Update, ChatPermissions, ChatMemberUpdated
 from telegram.ext import (
-    ContextTypes, ChatMemberHandler, MessageHandler, filters,
+    ContextTypes, ChatMemberHandler, CommandHandler, MessageHandler, filters,
     Application,
 )
 
@@ -173,6 +174,174 @@ async def _job_remove_long_inactive(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             log.warning("inactivity removal failed for %s: %s", u["user_id"], e)
 
 
+# --- admin commands -------------------------------------------------------
+
+JOB_MAP = {
+    "intro_kick":      _job_kick_intro_pending,
+    "ping_silent":     _job_ping_silent,
+    "demote_silent":   _job_demote_silent,
+    "remove_inactive": _job_remove_long_inactive,
+}
+
+
+def _is_admin(user_id: int, cfg: Config) -> bool:
+    return user_id in cfg.bootstrap_admin_ids
+
+
+def _fmt_ts(ts) -> str:
+    if not ts:
+        return "—"
+    if isinstance(ts, datetime):
+        now = datetime.now(timezone.utc)
+        delta = now - ts
+        secs = int(delta.total_seconds())
+        if secs < 0:
+            return ts.strftime("%Y-%m-%d %H:%M") + " (future?)"
+        if secs < 3600:
+            ago = f"{secs // 60}m ago"
+        elif secs < 86400:
+            ago = f"{secs // 3600}h ago"
+        else:
+            ago = f"{secs // 86400}d ago"
+        return ts.strftime("%Y-%m-%d %H:%M") + f" ({ago})"
+    return str(ts)
+
+
+async def cmd_lurk_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin-only. /lurk_status [user_id]
+    Shows lifecycle state for the user (default: yourself).
+    Can also be used as a reply: /lurk_status (replying to a message).
+    """
+    cfg: Config = ctx.bot_data["config"]
+    if not _is_admin(update.effective_user.id, cfg):
+        return
+
+    # Resolve target user_id
+    target_id = update.effective_user.id
+    if update.message and update.message.reply_to_message:
+        target_id = update.message.reply_to_message.from_user.id
+    else:
+        parts = (update.message.text or "").split()
+        if len(parts) > 1 and parts[1].lstrip("-").isdigit():
+            target_id = int(parts[1])
+
+    snap = await repo.get_lifecycle_snapshot(target_id)
+    if not snap:
+        await update.message.reply_text(f"no record for user_id {target_id}")
+        return
+
+    handle = ("@" + snap["username"]) if snap["username"] else (snap.get("first_name") or "—")
+    text = (
+        f"lifecycle :: {handle} ({snap['user_id']})\n"
+        f"\n"
+        f"current_tier:        {snap['current_tier']}\n"
+        f"is_banned:           {snap['is_banned']}\n"
+        f"strike_count:        {snap['strike_count']}\n"
+        f"last_strike_at:      {_fmt_ts(snap['last_strike_at'])}\n"
+        f"\n"
+        f"accepted_protocols:  {_fmt_ts(snap['accepted_protocols_at'])}\n"
+        f"certified:           {_fmt_ts(snap['certified_at'])}\n"
+        f"\n"
+        f"joined_floor:        {_fmt_ts(snap['joined_floor_at'])}\n"
+        f"intro_completed:     {_fmt_ts(snap['intro_completed_at'])}\n"
+        f"last_floor_msg:      {_fmt_ts(snap['last_floor_msg_at'])}\n"
+        f"activity_pinged:     {_fmt_ts(snap['activity_pinged_at'])}\n"
+        f"demoted_at:          {_fmt_ts(snap['demoted_at'])}\n"
+    )
+    await update.message.reply_text(text)
+
+
+async def cmd_lurk_run(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin-only. /lurk_run <job_name>
+    Force-executes one of the lifecycle jobs now.
+      job_name ∈ {intro_kick, ping_silent, demote_silent, remove_inactive}
+    """
+    cfg: Config = ctx.bot_data["config"]
+    if not _is_admin(update.effective_user.id, cfg):
+        return
+
+    parts = (update.message.text or "").split()
+    if len(parts) < 2 or parts[1] not in JOB_MAP:
+        await update.message.reply_text(
+            "usage: /lurk_run <job>\n"
+            "jobs: " + ", ".join(JOB_MAP.keys())
+        )
+        return
+
+    job_name = parts[1]
+    await update.message.reply_text(f"running {job_name}…")
+    try:
+        await JOB_MAP[job_name](ctx)
+        await update.message.reply_text(f"✓ {job_name} done. check logs for details.")
+    except Exception as e:
+        log.exception("manual job run failed")
+        await update.message.reply_text(f"✗ {job_name} failed: {e}")
+
+
+async def cmd_lurk_backdate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin-only. /lurk_backdate <user_id> <field>=<value> [<field>=<value> ...]
+
+    Push timestamps backwards on a user so the lifecycle jobs catch them.
+
+    Fields:
+      join_h=<hours>          how many hours ago they joined
+      msg_d=<days>            how many days ago their last floor message was
+      ping_d=<days>            how many days ago they were activity-pinged
+      demote_d=<days>         how many days ago they were demoted
+      clear_intro             erase intro_completed_at
+
+    Example: /lurk_backdate 7721296153 join_h=48 clear_intro
+    """
+    cfg: Config = ctx.bot_data["config"]
+    if not _is_admin(update.effective_user.id, cfg):
+        return
+
+    parts = (update.message.text or "").split()
+    if len(parts) < 3:
+        await update.message.reply_text(
+            "usage: /lurk_backdate <user_id> <field>=<value> ...\n"
+            "fields: join_h=<h>, msg_d=<d>, ping_d=<d>, demote_d=<d>, clear_intro"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await update.message.reply_text("user_id must be a number")
+        return
+
+    kwargs = {}
+    for arg in parts[2:]:
+        if arg == "clear_intro":
+            kwargs["clear_intro"] = True
+            continue
+        if "=" not in arg:
+            continue
+        k, v = arg.split("=", 1)
+        try:
+            iv = int(v)
+        except ValueError:
+            continue
+        if k == "join_h":
+            kwargs["joined_floor_minus_hours"] = iv
+        elif k == "msg_d":
+            kwargs["last_floor_msg_minus_days"] = iv
+        elif k == "ping_d":
+            kwargs["activity_pinged_minus_days"] = iv
+        elif k == "demote_d":
+            kwargs["demoted_minus_days"] = iv
+
+    if not kwargs:
+        await update.message.reply_text("no recognized fields. see /lurk_backdate help.")
+        return
+
+    await repo.force_backdate(target_id, **kwargs)
+    await update.message.reply_text(
+        f"backdated user {target_id} with: {kwargs}\n"
+        f"now run /lurk_status {target_id} to verify, or /lurk_run <job> to trigger action."
+    )
+
+
 # --- registration ----------------------------------------------------------
 
 def register(application: Application) -> None:
@@ -189,6 +358,11 @@ def register(application: Application) -> None:
         & ~filters.StatusUpdate.ALL,
         on_home_topic_message,
     ))
+
+    # Admin testing commands
+    application.add_handler(CommandHandler("lurk_status",   cmd_lurk_status))
+    application.add_handler(CommandHandler("lurk_run",      cmd_lurk_run))
+    application.add_handler(CommandHandler("lurk_backdate", cmd_lurk_backdate))
 
     # Schedule lifecycle jobs
     jq = application.job_queue
