@@ -11,13 +11,13 @@ no priest with a private line to anything real
 no founder whose vision you exist to serve
 the gap between us and them is a story they need you to believe
 
-we own nothing here but what we give each other
+we own nothing here but what we give one another
 information food medicine shelter time attention
 when one of us learns something we share it
 when one of us is in trouble we help
 this is not charity it is the only thing that has ever worked
 
-we do not lie to each other
+we do not lie to one another
 not about what we took not about what it did
 not about what we know not about what we don't
 a wrong number kills someone a wrong story ruins them
