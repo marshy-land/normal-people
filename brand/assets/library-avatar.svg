@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- normal people :: library avatar — dot offset upward to make room for the wordmark -->
+  <rect width="512" height="512" fill="#EDE9E0"/>
+  <!-- dot, smaller and lifted to leave room for type below -->
+  <circle cx="256" cy="200" r="80" fill="#7A3B2E"/>
+  <!-- wordmark: "library" in lowercase inter medium -->
+  <text x="256" y="368"
+        font-family="Inter, 'Inter Variable', -apple-system, system-ui, sans-serif"
+        font-size="58"
+        font-weight="500"
+        letter-spacing="-0.015em"
+        text-anchor="middle"
+        fill="#1F1D1A">library</text>
+</svg>

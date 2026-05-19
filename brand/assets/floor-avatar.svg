@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- normal people :: floor avatar (identical to bot — the dot is the brand) -->
+  <rect width="512" height="512" fill="#EDE9E0"/>
+  <circle cx="256" cy="256" r="115" fill="#7A3B2E"/>
+</svg>
