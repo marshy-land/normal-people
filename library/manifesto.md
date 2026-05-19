@@ -1,9 +1,15 @@
 normal people
 
-we are normal people
+normality is not banality
+normalcy is only what we define as such
 
-we work we sleep we eat we love we suffer we get sick we get old we die
-the people who tell us we are something else are selling something
+in this place normal is plainly defined
+
+normal is respect and care in kind and understanding
+normal is help over harm
+normal is the objective reality of our subjective experiences
+
+normal
 
 there is no master class of human
 no expert who knows your body better than you can learn to
