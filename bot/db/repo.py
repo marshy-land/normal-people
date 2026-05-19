@@ -278,3 +278,128 @@ async def mark_mod_reviewed(action_id: int, reviewer_id: int, decision: str) -> 
             """,
             reviewer_id, decision, action_id,
         )
+
+
+# -- ANTI-LURK lifecycle ----------------------------------------------------
+
+async def mark_joined_floor(user_id: int) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            update np_users
+               set joined_floor_at = coalesce(joined_floor_at, now()),
+                   demoted_at = null,
+                   activity_pinged_at = null
+             where user_id = $1
+            """,
+            user_id,
+        )
+
+
+async def mark_intro_completed(user_id: int) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "update np_users set intro_completed_at = now() where user_id = $1 and intro_completed_at is null",
+            user_id,
+        )
+
+
+async def touch_last_floor_msg(user_id: int) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "update np_users set last_floor_msg_at = now() where user_id = $1",
+            user_id,
+        )
+
+
+async def get_intro_pending(grace_hours: int) -> list[dict]:
+    """Users who joined the floor more than `grace_hours` ago and haven't introduced."""
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            select user_id, username, first_name, joined_floor_at
+              from np_users
+             where joined_floor_at is not null
+               and intro_completed_at is null
+               and is_banned = false
+               and joined_floor_at < now() - interval '{int(grace_hours)} hours'
+            """,
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_silent_users_for_ping(silent_days: int) -> list[dict]:
+    """Active members whose last message was >= silent_days ago, not yet pinged."""
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            select user_id, username, first_name, last_floor_msg_at
+              from np_users
+             where current_tier >= 2
+               and is_banned = false
+               and demoted_at is null
+               and intro_completed_at is not null
+               and activity_pinged_at is null
+               and (
+                 (last_floor_msg_at is not null and last_floor_msg_at < now() - interval '{int(silent_days)} days')
+                 or (last_floor_msg_at is null and joined_floor_at < now() - interval '{int(silent_days)} days')
+               )
+            """,
+        )
+        return [dict(r) for r in rows]
+
+
+async def mark_activity_pinged(user_id: int) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "update np_users set activity_pinged_at = now() where user_id = $1",
+            user_id,
+        )
+
+
+async def get_users_for_demotion(silent_days: int, ping_grace_days: int) -> list[dict]:
+    """Pinged users who've still been silent. Demote them."""
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            select user_id, username, first_name
+              from np_users
+             where current_tier >= 2
+               and is_banned = false
+               and demoted_at is null
+               and activity_pinged_at is not null
+               and activity_pinged_at < now() - interval '{int(ping_grace_days)} days'
+               and (
+                 last_floor_msg_at is null
+                 or last_floor_msg_at < activity_pinged_at
+               )
+            """,
+        )
+        return [dict(r) for r in rows]
+
+
+async def mark_demoted(user_id: int) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            update np_users
+               set demoted_at = now(),
+                   current_tier = 1
+             where user_id = $1
+            """,
+            user_id,
+        )
+
+
+async def get_users_for_inactivity_sweep(demoted_days: int) -> list[dict]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            select user_id, username, first_name
+              from np_users
+             where demoted_at is not null
+               and demoted_at < now() - interval '{int(demoted_days)} days'
+               and is_banned = false
+            """,
+        )
+        return [dict(r) for r in rows]

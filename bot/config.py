@@ -33,6 +33,11 @@ class Config:
     strike_decay_days: int
     log_level: str
     mod_review_chat_id: int  # 0 means "DM each bootstrap admin instead"
+    home_topic_id: int       # thread_id for the #home topic (for intro detection)
+    intro_grace_hours: int   # hours after join to post intro before kick
+    silent_ping_days: int    # days of silence before "still here?" DM
+    silent_demote_days: int  # additional days after ping before demotion
+    inactivity_remove_days: int  # days demoted before full removal
 
 
 def load_config() -> Config:
@@ -48,4 +53,9 @@ def load_config() -> Config:
         strike_decay_days=int(os.getenv("STRIKE_DECAY_DAYS", "90")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         mod_review_chat_id=int(os.getenv("MOD_REVIEW_CHAT_ID", "0")),
+        home_topic_id=int(os.getenv("HOME_TOPIC_ID", "14")),
+        intro_grace_hours=int(os.getenv("INTRO_GRACE_HOURS", "24")),
+        silent_ping_days=int(os.getenv("SILENT_PING_DAYS", "30")),
+        silent_demote_days=int(os.getenv("SILENT_DEMOTE_DAYS", "7")),
+        inactivity_remove_days=int(os.getenv("INACTIVITY_REMOVE_DAYS", "60")),
     )

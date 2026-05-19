@@ -234,6 +234,11 @@ async def on_floor_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
             await repo.log_message(chat.id, msg.message_id, user.id)
         except Exception as e:
             log.debug("log_message skipped: %s", e)
+        # update last-seen for anti-lurk
+        try:
+            await repo.touch_last_floor_msg(user.id)
+        except Exception as e:
+            log.debug("touch_last_floor_msg skipped: %s", e)
 
 
 async def _handle_detection(ctx, chat, msg, offender, detection, text: str) -> None:

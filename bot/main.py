@@ -9,7 +9,7 @@ from telegram.ext import Application, ContextTypes
 
 from .config import load_config
 from .db.pool import init_pool, close_pool
-from .handlers import onboarding, moderation
+from .handlers import onboarding, moderation, antilurk
 from .services import jobs
 
 log = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ def build_application() -> Application:
     app.bot_data["config"] = cfg
     onboarding.register(app)
     moderation.register(app)
+    antilurk.register(app)
     jobs.register(app)
     app.add_error_handler(_on_error)
     return app
@@ -57,7 +58,12 @@ def build_application() -> Application:
 def main() -> None:
     app = build_application()
     # Note: keep drop_pending_updates=False so users' messages survive redeploys.
-    app.run_polling(allowed_updates=None, drop_pending_updates=False)
+    # chat_member is REQUIRED for the anti-lurk join detector — it's opt-in.
+    from telegram import Update as _Update
+    app.run_polling(
+        allowed_updates=_Update.ALL_TYPES,
+        drop_pending_updates=False,
+    )
 
 
 if __name__ == "__main__":
