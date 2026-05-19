@@ -32,6 +32,7 @@ class Config:
     strike_mute_seconds: int
     strike_decay_days: int
     log_level: str
+    mod_review_chat_id: int  # 0 means "DM each bootstrap admin instead"
 
 
 def load_config() -> Config:
@@ -46,4 +47,5 @@ def load_config() -> Config:
         strike_mute_seconds=int(os.getenv("STRIKE_MUTE_SECONDS", "86400")),
         strike_decay_days=int(os.getenv("STRIKE_DECAY_DAYS", "90")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
+        mod_review_chat_id=int(os.getenv("MOD_REVIEW_CHAT_ID", "0")),
     )

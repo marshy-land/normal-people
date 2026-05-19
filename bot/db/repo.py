@@ -241,3 +241,40 @@ async def prune_message_log(days: int = 14) -> int:
         return int(await conn.fetchval(
             f"with d as (delete from np_messages where posted_at < now() - interval '{int(days)} days' returning 1) select count(*) from d"
         ))
+
+
+# -- AUTO-MOD ----------------------------------------------------------------
+
+async def log_mod_action(
+    user_id: int,
+    chat_id: int,
+    message_id: Optional[int],
+    rule_code: str,
+    severity: str,
+    action_taken: str,
+    message_excerpt: Optional[str],
+) -> int:
+    async with get_pool().acquire() as conn:
+        return int(await conn.fetchval(
+            """
+            insert into np_mod_actions
+                (user_id, chat_id, message_id, rule_code, severity, action_taken, message_excerpt)
+            values ($1, $2, $3, $4, $5, $6, $7)
+            returning id
+            """,
+            user_id, chat_id, message_id, rule_code, severity, action_taken, message_excerpt,
+        ))
+
+
+async def mark_mod_reviewed(action_id: int, reviewer_id: int, decision: str) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            update np_mod_actions
+               set reviewed_at = now(),
+                   reviewer_id = $1,
+                   review_decision = $2
+             where id = $3
+            """,
+            reviewer_id, decision, action_id,
+        )
