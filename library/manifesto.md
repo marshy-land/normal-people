@@ -9,8 +9,6 @@ normal is respect and care in kind and understanding
 normal is help over harm
 normal is the objective reality of our subjective experiences
 
-normal
-
 normal is no master class of human
 normal is no expert who knows your body better than you can learn to
 normal is no guru with a private line to anything real
