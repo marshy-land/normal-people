@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="512" viewBox="0 0 2048 512">
+  <!-- np monogram color exploration: same composition, four color pairings -->
+  <!-- Layout per variant: 512x512 panel. Circle (left) holds 'n', square (right) holds 'p'. -->
+
+  <defs>
+    <style>
+      .label {
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 14px;
+        font-weight: 400;
+        fill: #4A4843;
+        text-anchor: middle;
+      }
+      .glyph {
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 200px;
+        font-weight: 500;
+        letter-spacing: -0.04em;
+      }
+    </style>
+  </defs>
+
+  <!-- ============================================== -->
+  <!-- variant 1: signal red + deep teal -->
+  <!-- ============================================== -->
+  <g transform="translate(0,0)">
+    <rect width="512" height="512" fill="#EDE9E0"/>
+    <!-- circle, n -->
+    <circle cx="170" cy="240" r="110" fill="#7A3B2E"/>
+    <text x="170" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">n</text>
+    <!-- square, p -->
+    <rect x="232" y="130" width="220" height="220" rx="12" fill="#1F4E4A"/>
+    <text x="342" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">p</text>
+    <!-- label -->
+    <text x="256" y="450" class="label">1 · signal red + deep teal</text>
+  </g>
+
+  <!-- ============================================== -->
+  <!-- variant 2: signal red + muted ochre -->
+  <!-- ============================================== -->
+  <g transform="translate(512,0)">
+    <rect width="512" height="512" fill="#EDE9E0"/>
+    <circle cx="170" cy="240" r="110" fill="#7A3B2E"/>
+    <text x="170" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">n</text>
+    <rect x="232" y="130" width="220" height="220" rx="12" fill="#B68A2E"/>
+    <text x="342" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">p</text>
+    <text x="256" y="450" class="label">2 · signal red + muted ochre</text>
+  </g>
+
+  <!-- ============================================== -->
+  <!-- variant 3: signal red + slate blue -->
+  <!-- ============================================== -->
+  <g transform="translate(1024,0)">
+    <rect width="512" height="512" fill="#EDE9E0"/>
+    <circle cx="170" cy="240" r="110" fill="#7A3B2E"/>
+    <text x="170" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">n</text>
+    <rect x="232" y="130" width="220" height="220" rx="12" fill="#3D4A5C"/>
+    <text x="342" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">p</text>
+    <text x="256" y="450" class="label">3 · signal red + slate blue</text>
+  </g>
+
+  <!-- ============================================== -->
+  <!-- variant 4: signal red + moss -->
+  <!-- ============================================== -->
+  <g transform="translate(1536,0)">
+    <rect width="512" height="512" fill="#EDE9E0"/>
+    <circle cx="170" cy="240" r="110" fill="#7A3B2E"/>
+    <text x="170" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">n</text>
+    <rect x="232" y="130" width="220" height="220" rx="12" fill="#4A5A3A"/>
+    <text x="342" y="305" class="glyph" fill="#EDE9E0" text-anchor="middle">p</text>
+    <text x="256" y="450" class="label">4 · signal red + moss</text>
+  </g>
+</svg>

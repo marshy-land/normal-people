@@ -28,12 +28,16 @@ no decoration. no marketing energy. no slick gradients.
 | ink faint   | `#9A968D` | tertiary, placeholders, captions   |
 | rule        | `#C8C3B8` | dividers, borders                  |
 
-### accent — one only
+### accents — two, paired
 
 | role        | hex       | usage                              |
 |-------------|-----------|------------------------------------|
-| signal      | `#7A3B2E` | the dot. the link. the one thing your eye lands on. dried-blood / oxidized copper / muted brick. |
+| signal      | `#7A3B2E` | primary accent. links, the 'n' shape, the moment your eye lands. dried-blood / oxidized copper / muted brick. |
 | signal hover| `#5C2C22` | darker for interaction states      |
+| ochre       | `#B68A2E` | secondary accent. the 'p' shape, secondary callouts, dataviz second series. muted mustard / dried turmeric. |
+| ochre hover | `#8E6B22` | darker for interaction states      |
+
+these two colors never appear together except in the monogram itself, or paired across distinct elements. never gradient between them. never use them on the same continuous text run.
 
 ### dark mode (mirror)
 
@@ -45,7 +49,8 @@ no decoration. no marketing energy. no slick gradients.
 | ink soft    | `#A8A49B` | secondary                          |
 | ink faint   | `#6E6A62` | tertiary                           |
 | rule        | `#3A3733` | dividers                           |
-| signal      | `#C76551` | brighter accent for dark fields    |
+| signal      | `#C76551` | primary accent on dark fields      |
+| ochre       | `#D4A547` | secondary accent on dark fields    |
 
 ### contrast notes
 
@@ -93,7 +98,9 @@ not Helvetica. not system fonts. inter is plain, modern, and reads at 10px.
 
 ## logo system
 
-### wordmark
+the brand has two marks. they are not interchangeable.
+
+### the wordmark
 
 ```
 normal people
@@ -103,35 +110,42 @@ set in inter medium (500), tracking -0.015em.
 all lowercase, no punctuation, no period.
 single space between words.
 no stylization, no ligature, no custom letterform.
-the wordmark IS the brand. the absence of styling IS the style.
+the wordmark is the brand at speech volume.
 
-### geometric mark — the dot
+### the monogram — `np`
 
-a single filled circle in `signal` (`#7A3B2E`).
-ratio: the dot's diameter equals the x-height of the wordmark.
-position when lockup is used: leading the wordmark with one space of breathing room.
-position when standalone: centered on its container.
+the primary visual identity for surfaces where the full wordmark is too large or unreadable.
+construction: a filled circle (signal red) holding a lowercase 'n', overlapping a slightly-rounded square (ochre) holding a lowercase 'p'. both glyphs in inter medium, paper-colored, sized assertively so they dominate their shapes.
 
-```
-●  normal people
-```
+the two shapes are deliberately separated by color and form but unified by overlap. one is round (n / signal), the other is squared (p / ochre). together they read as a singular mark.
 
-the dot is the brand's only ornament. it stands for:
-- the period that should never appear in the wordmark
-- the unblinking acknowledgment of presence
-- one of us
+ratios (canonical, 512×512 square):
+- circle radius: 110
+- square: 220×220, corner radius 12, overlapping the circle's right edge
+- glyphs: 200pt inter medium, letter-spacing -0.04em, paper-fill
+
+use the monogram for:
+- avatars (bot, supergroup, library, any social profile)
+- favicons
+- the corner stamp on documents and headers
+- any context where the wordmark would be unreadable
+
+files:
+- `brand/assets/np-monogram-square.svg` / `.png` — for avatars (512×512)
+- `brand/assets/np-monogram-lockup.svg` / `.png` — for headers (1024×512)
 
 ### lockup variants
 
-| variant           | use                                    |
-|-------------------|----------------------------------------|
-| dot + wordmark    | headers, hero placements               |
-| wordmark only     | tight contexts, footers                |
-| dot only          | avatar, favicon, watermark             |
+| variant                       | use                                    |
+|-------------------------------|----------------------------------------|
+| monogram + wordmark           | hero headers, primary marketing        |
+| monogram only (square)        | avatars, favicons, watermarks          |
+| monogram only (horizontal)    | wide hero banners, document headers    |
+| wordmark only                 | footers, tight contexts, in-line use   |
 
 ### clear space
 
-minimum padding around any lockup = the height of the dot.
+minimum padding around any lockup = the radius of the monogram's circle.
 no exceptions.
 
 ---
@@ -148,19 +162,20 @@ the absence of imagery is the strongest visual statement we can make.
 
 ### bot avatar (`@normalpeople_gateway_bot`)
 - 512×512 png
-- background: paper (`#EDE9E0`)
-- foreground: dot only, centered, ~30% of canvas
-- file: `assets/bot-avatar.png`
+- np monogram, centered, paper background
+- file: `assets/np-monogram-square.png`
 
 ### library channel avatar
-- same template
-- variant: dot + small "library" wordmark below it
-- file: `assets/library-avatar.png`
+- 512×512 png
+- np monogram, centered, paper background
+- file: `assets/np-monogram-square.png` (identical to bot)
 
 ### floor supergroup avatar
-- same template
-- variant: dot only (matches bot)
-- file: `assets/floor-avatar.png`
+- 512×512 png
+- np monogram, centered, paper background
+- file: `assets/np-monogram-square.png` (identical to bot)
+
+*the three surfaces share one avatar to reinforce that bot, library, and floor are one entity.*
 
 ### bot dm chat background
 - subtle, low-contrast
