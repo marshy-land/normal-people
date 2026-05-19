@@ -11,38 +11,32 @@ normal is the objective reality of our subjective experiences
 
 normal
 
-there is no master class of human
-no expert who knows your body better than you can learn to
-no priest with a private line to anything real
-no founder whose vision you exist to serve
-the gap between us and them is a story they need you to believe
+normal is no master class of human
+normal is no expert who knows your body better than you can learn to
+normal is no guru with a private line to anything real
 
-we own nothing here but what we give one another
-information food medicine shelter time attention
-when one of us learns something we share it
-when one of us is in trouble we help
-this is not charity it is the only thing that has ever worked
+normal is what we give one another
+normal is sharing what we learn
+normal is helping one another in trouble
 
-we do not lie to one another
-not about what we took not about what it did
-not about what we know not about what we don't
-a wrong number kills someone a wrong story ruins them
-ego does not get to ride along
+normal is the truth told plainly
+normal is what you took and what it did
+normal is what you know and what you don't
+normal is ego left at the door
 
-your mind is yours
-what you put in it what you do with it what you find there
-no government no parent no chemist no guru owns the inside of your head
-but freedom is not the same as recklessness
-you study before you fly
-you weigh before you eat
-you sit with what you find and you bring it back useful
+normal is your mind is yours
+normal is your body is yours
+normal is freedom held with care
 
-the door does not move
-the door is not closed it is just clear about what you walk in agreeing to
+normal is study before you fly
+normal is weigh before you eat
+normal is bring back what you find
+
+normal is the door open
+normal is the terms clear
 
 you will not harm
 you will not lie
 you will treat every person here as your equal
 
-that is all
 if you can do that there is a place for you
