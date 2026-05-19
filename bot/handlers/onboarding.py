@@ -87,11 +87,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     ctx.user_data["state"] = "awaiting_captcha"
 
     await update.message.reply_text(
-        f"`normal people :: gateway`\n\n"
-        f"Verify you are human. Reply with the answer:\n\n"
-        f"  *{challenge.question}*\n\n"
-        f"_Expires in {cfg.captcha_ttl_seconds // 60} minutes._",
-        parse_mode=ParseMode.MARKDOWN,
+        "normal people :: gateway\n\n"
+        "Verify you are human. Reply with the answer:\n\n"
+        f"  {challenge.question}\n\n"
+        f"Expires in {cfg.captcha_ttl_seconds // 60} minutes.",
     )
 
 

@@ -12,15 +12,13 @@ class Challenge:
 
 
 def generate_math_challenge() -> Challenge:
-    a, b = random.randint(2, 9), random.randint(2, 9)
-    op = random.choice(["+", "-", "*"])
+    a, b = random.randint(2, 19), random.randint(2, 19)
+    op = random.choice(["+", "-"])
     if op == "+":
         ans = a + b
-    elif op == "-":
+    else:
         # ensure positive
         if b > a:
             a, b = b, a
         ans = a - b
-    else:
-        ans = a * b
     return Challenge(question=f"{a} {op} {b} = ?", answer=str(ans))

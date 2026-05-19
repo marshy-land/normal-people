@@ -49,6 +49,15 @@ def _excerpt(text: str | None, limit: int = 200) -> str:
     return (text[:limit] + "…") if len(text) > limit else text
 
 
+def _escape_md(text: str) -> str:
+    """Escape characters that have meaning in Telegram Markdown V1."""
+    if not text:
+        return ""
+    for ch in ("_", "*", "`", "["):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
 # --- /warn handler factory -------------------------------------------------
 
 def _make_warn_handler(protocol: int):
@@ -124,7 +133,8 @@ async def _strike_one(ctx, chat_id: int, thread_id: int | None,
 
     await repo.set_mute(offender.id, until)
 
-    handle = f"@{offender.username}" if offender.username else (offender.first_name or str(offender.id))
+    raw_handle = f"@{offender.username}" if offender.username else (offender.first_name or str(offender.id))
+    handle = _escape_md(raw_handle)
     log_text = (
         "⚠️ *SYSTEM LOG: INFRACTION DETECTED*\n"
         f"`User:` {handle}\n"
