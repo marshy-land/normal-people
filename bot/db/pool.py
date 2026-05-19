@@ -8,6 +8,14 @@ _pool: Optional[asyncpg.Pool] = None
 
 
 async def init_pool(dsn: str) -> asyncpg.Pool:
+    """Initialize the asyncpg pool.
+
+    Disables prepared-statement caching so the pool works with Supabase's
+    Transaction-mode pooler (PgBouncer, port 6543), which rotates underlying
+    Postgres connections between transactions and can't preserve prepared
+    statements. Safe with Session-mode pooler too — just gives up a small
+    perf optimization.
+    """
     global _pool
     if _pool is None:
         _pool = await asyncpg.create_pool(
@@ -15,6 +23,7 @@ async def init_pool(dsn: str) -> asyncpg.Pool:
             min_size=1,
             max_size=10,
             command_timeout=30,
+            statement_cache_size=0,
         )
     return _pool
 
