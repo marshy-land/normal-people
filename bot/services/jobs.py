@@ -6,6 +6,7 @@ from telegram.ext import Application, ContextTypes
 
 from ..config import Config
 from ..db import repo
+from . import holds
 
 log = logging.getLogger(__name__)
 
@@ -37,3 +38,6 @@ def register(application: Application) -> None:
     # Run daily; first run 60s after boot for a quick smoke check.
     jq.run_repeating(_job_decay_strikes,    interval=86400, first=60, name="decay_strikes")
     jq.run_repeating(_job_prune_message_log, interval=86400, first=120, name="prune_messages")
+    # Hold-queue poller: deliver Tier-2 invites for users whose hold window
+    # expired. Runs every 60s; first tick 15s after boot.
+    jq.run_repeating(holds.deliver_due_holds_job, interval=60, first=15, name="deliver_due_holds")

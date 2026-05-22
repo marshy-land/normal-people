@@ -11,6 +11,7 @@ from ..config import Config
 from ..db import repo
 from ..services.captcha import generate_math_challenge
 from ..services.invites import issue_single_use_invite
+from ..services import holds
 
 log = logging.getLogger(__name__)
 
@@ -70,8 +71,34 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     cfg: Config = ctx.bot_data["config"]
 
     await repo.upsert_user(u.id, u.username, u.first_name)
+    # Insert-only identity snapshot used by the soft-boot detector. Safe to
+    # call on every /start; no-ops once a snapshot exists.
+    try:
+        await holds.record_identity_snapshot(u.id, u.username, u.first_name)
+    except Exception:
+        log.exception("identity snapshot failed for user=%s", u.id)
+
     if await repo.is_banned(u.id):
         await update.message.reply_text("you can't come back here")
+        return
+
+    # If they're currently in a hold window, short-circuit with status instead
+    # of restarting the gauntlet. Active hold survives /start.
+    try:
+        st = await holds.hold_status(u.id)
+    except Exception:
+        st = None
+        log.exception("hold_status failed for user=%s", u.id)
+    if st and st.get("in_hold"):
+        secs = int(st.get("seconds_remaining") or 0)
+        hours = secs // 3600
+        mins  = (secs % 3600) // 60
+        await update.message.reply_text(
+            "you're in a hold window\n\n"
+            f"remaining: {hours}h {mins}m\n"
+            "your invite link arrives here automatically when the timer expires\n"
+            "no action needed. messaging the bot doesn't change the timer"
+        )
         return
 
     # ── Referral attribution ────────────────────────────────────────────
@@ -314,32 +341,38 @@ async def on_certify_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         await _send_certify_prompt(update, ctx, step=next_step)
         return
 
-    # All 3 agreed → full access
+    # All 3 agreed → certified, but entry to The Floor goes through a hold
+    # window (default 6h; longer for soft-booted users — see services/holds.py).
     u = q.from_user
     cfg: Config = ctx.bot_data["config"]
     await repo.mark_certified(u.id)
     try:
-        invite = await issue_single_use_invite(
-            bot=ctx.bot,
-            chat_id=cfg.tier2_group_id,
-            user_id=u.id,
-            target_tier=2,
-            ttl_seconds=cfg.invite_ttl_seconds,
-        )
+        hold = await holds.enqueue_post_certify_hold(u.id, u.username, u.first_name)
     except Exception as e:
-        log.exception("tier2 invite failed")
-        await q.edit_message_text(f"something went wrong issuing your invite: {e}")
+        log.exception("enqueue_post_certify_hold failed")
+        await q.edit_message_text(f"something went wrong starting your hold: {e}")
         return
+
+    hold_hours  = int(hold.get("hold_hours") or 6)
+    hold_reason = hold.get("hold_reason") or "default"
+    deliver_at  = hold.get("deliver_at")
+    deliver_when = (
+        deliver_at.strftime("%Y-%m-%d %H:%M UTC") if deliver_at is not None else "soon"
+    )
+    reason_blurb = {
+        "default":                  "standard new-member trust window",
+        "soft_boot_reentry":        "you were soft-booted previously",
+        "soft_boot_identity_change":"you were soft-booted and your name has changed since",
+    }.get(hold_reason, "trust window")
 
     ctx.user_data.pop("certify_step", None)
     await q.edit_message_text(
-        "welcome in. you have your voice now\n\n"
-        f"this link works once and only for the next {cfg.invite_ttl_seconds // 60} minutes\n"
-        f"{invite}\n\n"
-        "look around\n"
-        "see what people are talking about\n"
-        "add what you can\n\n"
-        "help others. don't lie. treat everyone as your equal",
+        "agreements logged\n\n"
+        f"hold: {hold_hours} hours ({reason_blurb})\n"
+        f"your invite link arrives here: {deliver_when}\n\n"
+        "no action required\n"
+        "messaging the bot doesn't change the timer\n"
+        "send /status anytime to see the countdown",
         disable_web_page_preview=True,
     )
 
@@ -481,6 +514,38 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+# --- /status ---------------------------------------------------------------
+
+async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the user's current hold countdown (or that they have none)."""
+    if update.effective_chat.type != "private":
+        return
+    u = update.effective_user
+    try:
+        st = await holds.hold_status(u.id)
+    except Exception:
+        log.exception("hold_status failed for user=%s", u.id)
+        await update.message.reply_text("couldn't read your status right now. try again in a moment")
+        return
+    if not st or not st.get("in_hold"):
+        await update.message.reply_text(
+            "no active hold\n"
+            "if you haven't started yet send /start"
+        )
+        return
+    secs   = int(st.get("seconds_remaining") or 0)
+    hours  = secs // 3600
+    mins   = (secs % 3600) // 60
+    reason = st.get("hold_reason") or "trust window"
+    deliver_at = st.get("deliver_at")
+    deliver_when = deliver_at.strftime("%Y-%m-%d %H:%M UTC") if deliver_at else "soon"
+    await update.message.reply_text(
+        f"hold: {st.get('hold_hours')}h ({reason})\n"
+        f"remaining: {hours}h {mins}m\n"
+        f"invite arrives: {deliver_when}"
+    )
+
+
 # --- Registration ----------------------------------------------------------
 
 def register(application) -> None:
@@ -488,6 +553,7 @@ def register(application) -> None:
     application.add_handler(CommandHandler("certify", cmd_certify))
     application.add_handler(CommandHandler("ref", cmd_ref))
     application.add_handler(CommandHandler("shop", cmd_shop))
+    application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CallbackQueryHandler(on_accept_protocols, pattern="^accept_protocols$"))
     application.add_handler(CallbackQueryHandler(on_reverify_accept, pattern="^reverify_accept$"))
     application.add_handler(CallbackQueryHandler(on_certify_button, pattern="^certify_(agree|deny)_\\d+$"))

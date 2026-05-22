@@ -604,3 +604,60 @@ async def force_backdate(
     sql = "update np_users set " + ", ".join(updates) + " where user_id = $1"
     async with get_pool().acquire() as conn:
         await conn.execute(sql, *params)
+
+
+# -- HOLDS / SOFT-BOOTS ------------------------------------------------------
+
+async def np_record_identity_snapshot(chat_id: int, username: Optional[str], first_name: Optional[str]) -> None:
+    """Insert-only snapshot of identity at first /start. No-op on conflict."""
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "select public.np_record_identity_snapshot($1::bigint, $2::text, $3::text)",
+            chat_id, username, first_name,
+        )
+
+
+async def np_enqueue_hold(chat_id: int, username: Optional[str], first_name: Optional[str]) -> dict:
+    """Returns dict with deliver_at, hold_hours, hold_reason, was_existing."""
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select * from public.np_enqueue_hold($1::bigint, $2::text, $3::text)",
+            chat_id, username, first_name,
+        )
+        return dict(row) if row else {}
+
+
+async def np_handle_identity_change(chat_id: int, username: Optional[str], first_name: Optional[str]) -> dict:
+    """Returns dict with triggered, boot_id, username_snap, first_name_snap."""
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select * from public.np_handle_identity_change($1::bigint, $2::text, $3::text)",
+            chat_id, username, first_name,
+        )
+        return dict(row) if row else {}
+
+
+async def np_claim_due_holds(limit: int = 20) -> list[dict]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select * from public.np_claim_due_holds($1::int)",
+            int(limit),
+        )
+        return [dict(r) for r in rows]
+
+
+async def np_mark_hold_delivered(hold_id: int, invite_link: str) -> None:
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "select public.np_mark_hold_delivered($1::bigint, $2::text)",
+            int(hold_id), invite_link,
+        )
+
+
+async def np_hold_status(chat_id: int) -> Optional[dict]:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select * from public.np_hold_status($1::bigint)",
+            chat_id,
+        )
+        return dict(row) if row else None

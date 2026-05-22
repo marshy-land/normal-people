@@ -22,7 +22,7 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, CallbackQ
 
 from ..config import Config
 from ..db import repo
-from ..services import automod
+from ..services import automod, holds
 
 log = logging.getLogger(__name__)
 
@@ -201,6 +201,19 @@ async def on_floor_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
             return
     except Exception:
         pass
+
+    # Identity-change soft-boot detector. If username AND first_name BOTH
+    # differ from the np_identity_snapshots row, kick from Floor and open a
+    # soft_boot. Best-effort — a detector failure must not block messaging.
+    try:
+        triggered = await holds.check_and_handle_identity_change(
+            ctx.bot, cfg, user.id, user.username, user.first_name,
+        )
+        if triggered:
+            # User has been kicked. Don't run automod on a no-longer-member.
+            return
+    except Exception:
+        log.exception("identity-change detector failed for user=%s", user.id)
 
     text = msg.text or msg.caption or ""
 
