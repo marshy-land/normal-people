@@ -149,6 +149,40 @@ async def check_captcha(user_id: int, submitted: str) -> tuple[bool, int]:
         return False, remaining
 
 
+async def has_active_captcha(user_id: int) -> bool:
+    """True if the user has a non-expired captcha session in the DB.
+
+    Used to recover from per-process state loss (Railway redeploys wipe
+    ctx.user_data). The DB is the authoritative state.
+    """
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select expires_at from np_captcha_sessions where user_id = $1",
+            user_id,
+        )
+    if not row:
+        return False
+    return row["expires_at"] > datetime.now(timezone.utc)
+
+
+# -- REFERRALS ---------------------------------------------------------------
+
+async def attribute_referral(referred_user_id: int, ref_code: str) -> Optional[dict]:
+    """Call the np_attribute_referral RPC. The function sets np_users.referred_by,
+    writes an np_referrals row, and applies any HIGH-watchlist inheritance.
+
+    Returns the RPC result row, or None if no rows were returned.
+    Caller treats failures as best-effort — a missing/expired code must NOT
+    block onboarding.
+    """
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select success, referrer_chat_id, message from np_attribute_referral($1, $2)",
+            referred_user_id, ref_code,
+        )
+    return dict(row) if row else None
+
+
 # -- STRIKES & MESSAGES ------------------------------------------------------
 
 async def add_strike(user_id: int, issued_by: int, protocol: int,

@@ -74,6 +74,18 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("you can't come back here")
         return
 
+    # ── Referral attribution ────────────────────────────────────────────
+    # `/start <ref_code>` arrives as ctx.args=[ref_code]. Telegram delivers
+    # the deep-link payload as the only token after /start. Best-effort:
+    # attribution failures must NEVER block onboarding.
+    if ctx.args:
+        ref_code = ctx.args[0].strip()
+        if ref_code:
+            try:
+                await repo.attribute_referral(u.id, ref_code)
+            except Exception:
+                log.exception("referral attribution failed for user=%s code=%s", u.id, ref_code)
+
     # Re-verification path: user was muted and needs to re-affirm
     user_row = await repo.get_user(u.id)
     if user_row and user_row.get("must_reverify"):
@@ -103,31 +115,82 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # --- CAPTCHA reply ---------------------------------------------------------
 
 async def on_captcha_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if ctx.user_data.get("state") != "awaiting_captcha":
-        return
+    """Free-text in DM. ctx.user_data is per-process and is wiped on every
+    Railway redeploy, so we MUST NOT gate on the in-memory state alone.
+    The DB has authoritative captcha state via np_captcha_sessions; reconstruct
+    from it. If the user is mid-manifesto/certify, nudge them onto the right
+    button instead of silently swallowing the message.
+    """
     u = update.effective_user
+    in_memory_state = ctx.user_data.get("state")
     submitted = update.message.text or ""
 
-    ok, remaining = await repo.check_captcha(u.id, submitted)
-    if not ok:
-        if remaining > 0:
-            await update.message.reply_text(
-                f"that's not right. {remaining} attempts left. or send /start for a new question"
-            )
-        else:
-            ctx.user_data.pop("state", None)
-            await update.message.reply_text(
-                "too many wrong answers. send /start to try again"
-            )
+    # 1. If there is an active captcha session (DB-backed), treat this as
+    #    a captcha answer regardless of in-memory state.
+    if in_memory_state == "awaiting_captcha" or await repo.has_active_captcha(u.id):
+        ok, remaining = await repo.check_captcha(u.id, submitted)
+        if not ok:
+            if remaining > 0:
+                await update.message.reply_text(
+                    f"that's not right. {remaining} attempts left. or send /start for a new question"
+                )
+            else:
+                ctx.user_data.pop("state", None)
+                await update.message.reply_text(
+                    "too many wrong answers. send /start to try again"
+                )
+            return
+
+        ctx.user_data["state"] = "awaiting_manifesto"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("i accept", callback_data="accept_protocols")
+        ]])
+        await update.message.reply_text(
+            "good\n\nthe three agreements\n\n" + THREE_AGREEMENTS,
+            reply_markup=kb,
+        )
         return
 
-    ctx.user_data["state"] = "awaiting_manifesto"
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("i accept", callback_data="accept_protocols")
-    ]])
+    # 2. No active captcha. Recover state from DB so the user isn't stuck
+    #    after a redeploy or after typing text instead of pressing a button.
+    user_row = await repo.get_user(u.id)
+    if not user_row:
+        await update.message.reply_text("send /start to begin")
+        return
+
+    if user_row.get("must_reverify"):
+        ctx.user_data["state"] = "awaiting_reverify"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("i accept again", callback_data="reverify_accept")
+        ]])
+        await update.message.reply_text(
+            REVERIFY_INTRO + "\n\n" + THREE_AGREEMENTS,
+            reply_markup=kb,
+        )
+        return
+
+    if not user_row.get("accepted_protocols_at"):
+        # User passed captcha previously but never tapped "i accept".
+        ctx.user_data["state"] = "awaiting_manifesto"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("i accept", callback_data="accept_protocols")
+        ]])
+        await update.message.reply_text(
+            "tap the button to continue\n\nthe three agreements\n\n" + THREE_AGREEMENTS,
+            reply_markup=kb,
+        )
+        return
+
+    if not user_row.get("certified_at"):
+        # Read the library, then send /certify.
+        await update.message.reply_text(
+            "you have read-access. when you are ready to speak, send /certify here"
+        )
+        return
+
+    # Fully certified — text in DM is nothing to act on.
     await update.message.reply_text(
-        "good\n\nthe three agreements\n\n" + THREE_AGREEMENTS,
-        reply_markup=kb,
+        "you already have full access. talk in the group, not here"
     )
 
 
