@@ -386,8 +386,12 @@ def register(application: Application) -> None:
         log.warning("JobQueue unavailable; anti-lurk jobs won't run")
         return
 
-    # Hourly: check who missed their intro deadline
-    jq.run_repeating(_job_kick_intro_pending, interval=3600, first=180, name="antilurk_intro_kick")
+    # DISABLED 2026-05-22: this job was kicking certified Tier-2 members
+    # whose intro_completed_at happened to be NULL. Pre-certification gating
+    # already lives in /certify (the gauntlet IS the intro), so this job
+    # was net-negative. Code is kept callable via /lurk_run intro_kick if
+    # an admin needs to force-run it manually with the new certified gate.
+    # jq.run_repeating(_job_kick_intro_pending, interval=3600, first=180, name="antilurk_intro_kick")
     # Daily: ping silent members
     jq.run_repeating(_job_ping_silent,        interval=86400, first=240, name="antilurk_ping_silent")
     # Daily: demote those who didn't respond
