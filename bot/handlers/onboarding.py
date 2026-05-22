@@ -386,11 +386,108 @@ async def on_reverify_accept(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+# --- /ref ------------------------------------------------------------------
+
+async def cmd_ref(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """DM-only. Tier-2 certified users get their personal referral deeplink.
+
+    The link form is `https://t.me/<bot_username>?start=<ref_code>`. When a
+    new arrival clicks it, Telegram delivers `/start <ref_code>` to the bot
+    and cmd_start attributes the referral via np_attribute_referral.
+    """
+    if update.effective_chat.type != "private":
+        return  # silently ignore in groups; this is a DM-only feature
+
+    u = update.effective_user
+    user_row = await repo.get_user(u.id)
+    if not user_row or (user_row.get("current_tier") or 0) < 2:
+        await update.message.reply_text(
+            "you need to be in the floor before you can invite anyone. "
+            "send /start, get through the airlock, and /certify first"
+        )
+        return
+
+    try:
+        code = await repo.get_or_create_ref_code(u.id)
+    except Exception:
+        log.exception("get_or_create_ref_code failed for user=%s", u.id)
+        await update.message.reply_text(
+            "something went wrong generating your invite. try again in a minute"
+        )
+        return
+
+    me = await ctx.bot.get_me()
+    link = f"https://t.me/{me.username}?start={code}"
+    await update.message.reply_text(
+        "here is your invite link\n\n"
+        f"{link}\n\n"
+        "share it with people you vouch for. each person who joins through it "
+        "is attributed to you. no clout, no leaderboard. just a quiet way to "
+        "grow the room with people you trust",
+        disable_web_page_preview=True,
+    )
+
+
+# --- /shop -----------------------------------------------------------------
+
+async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """DM-only. Mints a one-time shop access token, sends the store URL with
+    the token attached. Token lifetime = SHOP_SESSION_HOURS (defaults to 24).
+    """
+    if update.effective_chat.type != "private":
+        return
+
+    u = update.effective_user
+    user_row = await repo.get_user(u.id)
+    if not user_row or (user_row.get("current_tier") or 0) < 2:
+        await update.message.reply_text(
+            "the store is for floor members. send /start to begin if you haven't yet"
+        )
+        return
+
+    store_url = await repo.get_secret("STORE_URL")
+    if not store_url:
+        log.error("STORE_URL missing from np_secrets")
+        await update.message.reply_text(
+            "the store is offline right now. try again later"
+        )
+        return
+
+    ttl_raw = await repo.get_secret("SHOP_SESSION_HOURS")
+    try:
+        ttl_hours = int(ttl_raw) if ttl_raw else 24
+    except (TypeError, ValueError):
+        ttl_hours = 24
+
+    try:
+        token, expires_at = await repo.issue_shop_token(u.id, ttl_hours)
+    except Exception:
+        log.exception("issue_shop_token failed for user=%s", u.id)
+        await update.message.reply_text(
+            "something went wrong opening your session. try again in a minute"
+        )
+        return
+
+    # Build URL with token. Append cleanly whether store_url already has a query.
+    sep = "&" if "?" in store_url else "?"
+    link = f"{store_url}{sep}t={token}"
+
+    await update.message.reply_text(
+        "here is your store session\n\n"
+        f"{link}\n\n"
+        f"the link is yours alone and lasts {ttl_hours} hours. "
+        "if you close it just send /shop again",
+        disable_web_page_preview=True,
+    )
+
+
 # --- Registration ----------------------------------------------------------
 
 def register(application) -> None:
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("certify", cmd_certify))
+    application.add_handler(CommandHandler("ref", cmd_ref))
+    application.add_handler(CommandHandler("shop", cmd_shop))
     application.add_handler(CallbackQueryHandler(on_accept_protocols, pattern="^accept_protocols$"))
     application.add_handler(CallbackQueryHandler(on_reverify_accept, pattern="^reverify_accept$"))
     application.add_handler(CallbackQueryHandler(on_certify_button, pattern="^certify_(agree|deny)_\\d+$"))

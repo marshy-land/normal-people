@@ -198,6 +198,83 @@ async def inherit_high_from_referrer(user_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
+async def get_or_create_ref_code(chat_id: int) -> str:
+    """Return the user's ref_code, creating one (8-char hex) if missing.
+
+    Idempotent via ON CONFLICT — races between two parallel /ref invocations
+    by the same user resolve to the same row.
+    """
+    import secrets as _secrets
+    import asyncpg as _asyncpg
+    async with get_pool().acquire() as conn:
+        existing = await conn.fetchval(
+            "select ref_code from np_referral_codes where chat_id = $1",
+            chat_id,
+        )
+        if existing:
+            return existing
+        # Generate a fresh 8-char hex code. Collision odds against ref_code
+        # uniqueness are ~1 in 4.3B per attempt; retry up to 5 times. The
+        # chat_id PK side is handled by the `on conflict (chat_id)` clause.
+        for _ in range(5):
+            code = _secrets.token_hex(4)  # 8 hex chars
+            try:
+                row = await conn.fetchrow(
+                    """
+                    insert into np_referral_codes (chat_id, ref_code)
+                    values ($1, $2)
+                    on conflict (chat_id) do nothing
+                    returning ref_code
+                    """,
+                    chat_id, code,
+                )
+            except _asyncpg.UniqueViolationError:
+                # ref_code collided with another user. Try again with new code.
+                continue
+            if row:
+                return row["ref_code"]
+            # chat_id row already existed (concurrent insert). Read winner.
+            existing = await conn.fetchval(
+                "select ref_code from np_referral_codes where chat_id = $1",
+                chat_id,
+            )
+            if existing:
+                return existing
+        # Extremely unlikely path: 5 collisions in a row. Surface as error.
+        raise RuntimeError(f"failed to allocate ref_code for chat_id={chat_id}")
+
+
+async def issue_shop_token(chat_id: int, ttl_hours: int) -> tuple[str, datetime]:
+    """Mint a one-time shop access token for a certified user.
+
+    Inserts a row in np_shop_access_grants (status='pending') and returns
+    (token, expires_at). The store backend consumes the token on first
+    valid arrival and bumps status='consumed'.
+    """
+    import secrets as _secrets
+    token = _secrets.token_urlsafe(24)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            insert into np_shop_access_grants (token, chat_id, expires_at)
+            values ($1, $2, $3)
+            """,
+            token, chat_id, expires_at,
+        )
+    return token, expires_at
+
+
+async def get_secret(name: str) -> Optional[str]:
+    """Read a runtime config value from np_secrets. Caller treats missing as None."""
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select value from np_secrets where name = $1",
+            name,
+        )
+    return row["value"] if row else None
+
+
 # -- STRIKES & MESSAGES ------------------------------------------------------
 
 async def add_strike(user_id: int, issued_by: int, protocol: int,
