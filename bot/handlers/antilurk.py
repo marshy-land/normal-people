@@ -124,6 +124,14 @@ async def _job_kick_intro_pending(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await ctx.bot.ban_chat_member(cfg.tier2_group_id, u["user_id"])
             await ctx.bot.unban_chat_member(cfg.tier2_group_id, u["user_id"])
             log.info("kicked for no intro: user_id=%s (@%s)", u["user_id"], u.get("username"))
+            try:
+                await repo.log_watch_action(
+                    u["user_id"], "intro_kick",
+                    f"Joined Floor at {u.get('joined_floor_at')} and never posted intro within {cfg.intro_grace_hours}h grace. Ban+unban (re-invitable).",
+                    "py_bot",
+                )
+            except Exception as e:
+                log.warning("log_watch_action failed for %s: %s", u["user_id"], e)
         except Exception as e:
             log.warning("kick failed for %s: %s", u["user_id"], e)
 
@@ -170,6 +178,14 @@ async def _job_remove_long_inactive(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await ctx.bot.ban_chat_member(cfg.tier2_group_id, u["user_id"])
             await ctx.bot.unban_chat_member(cfg.tier2_group_id, u["user_id"])
             log.info("removed for long inactivity: user_id=%s (@%s)", u["user_id"], u.get("username"))
+            try:
+                await repo.log_watch_action(
+                    u["user_id"], "long_inactivity_kick",
+                    f"Demoted >= {cfg.inactivity_remove_days} days. Ban+unban (re-invitable).",
+                    "py_bot",
+                )
+            except Exception as e:
+                log.warning("log_watch_action failed for %s: %s", u["user_id"], e)
         except Exception as e:
             log.warning("inactivity removal failed for %s: %s", u["user_id"], e)
 

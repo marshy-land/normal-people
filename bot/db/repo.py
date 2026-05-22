@@ -275,6 +275,22 @@ async def get_secret(name: str) -> Optional[str]:
     return row["value"] if row else None
 
 
+async def log_watch_action(user_id: int, action: str, reason: str, actor: str) -> None:
+    """Append a row to np_watch_actions. Used by automated jobs so every
+    bot-initiated state change (kick, ban, demote, mute) is auditable from
+    SQL without needing Railway logs. Best-effort; failure is logged by
+    the caller and must never block the action that triggered it.
+    """
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            insert into np_watch_actions (chat_id, action, reason, actor)
+            values ($1, $2, $3, $4)
+            """,
+            user_id, action, reason, actor,
+        )
+
+
 # -- STRIKES & MESSAGES ------------------------------------------------------
 
 async def add_strike(user_id: int, issued_by: int, protocol: int,
@@ -439,7 +455,15 @@ async def touch_last_floor_msg(user_id: int) -> None:
 
 
 async def get_intro_pending(grace_hours: int) -> list[dict]:
-    """Users who joined the floor more than `grace_hours` ago and haven't introduced."""
+    """Users who joined the Floor more than `grace_hours` ago and haven't
+    introduced AND haven't certified.
+
+    The certified_at gate is critical: a certified user has passed the full
+    /certify gauntlet, which IS the intro. Without this check the kicker
+    removes legitimate certified members who never happened to set
+    intro_completed_at — e.g. anyone certified before that column was used,
+    or anyone whose intro tracking failed silently for any reason.
+    """
     async with get_pool().acquire() as conn:
         rows = await conn.fetch(
             f"""
@@ -447,6 +471,7 @@ async def get_intro_pending(grace_hours: int) -> list[dict]:
               from np_users
              where joined_floor_at is not null
                and intro_completed_at is null
+               and certified_at is null
                and is_banned = false
                and joined_floor_at < now() - interval '{int(grace_hours)} hours'
             """,
