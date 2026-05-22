@@ -86,6 +86,37 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             except Exception:
                 log.exception("referral attribution failed for user=%s code=%s", u.id, ref_code)
 
+            # ── HIGH-watchlist inheritance ───────────────────────────────
+            # If any ancestor (≤3 hops up the referral chain) is on np_watchlist
+            # with tier='HIGH', add this user too. DM admins on hit so a human
+            # can review immediately. Best-effort: never block onboarding.
+            try:
+                inh = await repo.inherit_high_from_referrer(u.id)
+                if inh and inh.get("inherited"):
+                    src = inh.get("source_chat_id")
+                    hop = inh.get("hop")
+                    reason = inh.get("reason") or "-"
+                    log.info(
+                        "HIGH inherited: user=%s source=%s hop=%s reason=%s",
+                        u.id, src, hop, reason,
+                    )
+                    handle = f"@{u.username}" if u.username else f"id:{u.id}"
+                    name = (u.first_name or "").strip() or "-"
+                    body = (
+                        "⛓ HIGH inherited via referral\n"
+                        f"user: {handle} ({name}) id={u.id}\n"
+                        f"inherited from: {src} (hop {hop})\n"
+                        f"ref_code used: {ref_code}\n"
+                        f"reason: {reason}"
+                    )
+                    for admin_id in cfg.bootstrap_admin_ids:
+                        try:
+                            await ctx.bot.send_message(chat_id=admin_id, text=body)
+                        except Exception:
+                            log.warning("admin DM failed for admin_id=%s", admin_id)
+            except Exception:
+                log.exception("HIGH inheritance failed for user=%s", u.id)
+
     # Re-verification path: user was muted and needs to re-affirm
     user_row = await repo.get_user(u.id)
     if user_row and user_row.get("must_reverify"):

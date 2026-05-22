@@ -183,6 +183,21 @@ async def attribute_referral(referred_user_id: int, ref_code: str) -> Optional[d
     return dict(row) if row else None
 
 
+async def inherit_high_from_referrer(user_id: int) -> Optional[dict]:
+    """Walk up to 3 hops up the referral chain; if any ancestor is on
+    np_watchlist with tier='HIGH', add this user too. Idempotent.
+
+    Returns {inherited, source_chat_id, hop, reason} or None if no row.
+    Caller treats failures as best-effort — must never block onboarding.
+    """
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select inherited, source_chat_id, hop, reason from np_inherit_high_from_referrer($1)",
+            user_id,
+        )
+    return dict(row) if row else None
+
+
 # -- STRIKES & MESSAGES ------------------------------------------------------
 
 async def add_strike(user_id: int, issued_by: int, protocol: int,
