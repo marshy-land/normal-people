@@ -478,9 +478,27 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    # Preferred path: a Telegram deep link into the store bot. When the user
+    # taps it, Telegram opens @<STORE_BOT_USERNAME>, fires /start shop_<token>
+    # on the store side, which validates the grant against np_shop_access_grants
+    # and launches the Mini App with a real, signed initData payload — the
+    # only auth shape the storefront API accepts.
+    #
+    # Background on why this isn't the bare https URL anymore: handing out
+    # `https://<store-url>/?t=<token>` opens the SPA OUTSIDE Telegram, so the
+    # mini-app has no window.Telegram.WebApp.initData, so every customer-API
+    # call 401s missing_init_data, so the page never finishes booting. We saw
+    # this in prod: 23 grants minted, 0 ever consumed; multiple customers
+    # locked out indefinitely.
+    #
+    # STORE_BOT_USERNAME lives in np_secrets (e.g. "ArgyleApothecarie_bot").
+    # STORE_URL is kept as a graceful fallback — the store now also has a
+    # bare-URL redirect middleware that 302s ?t=<token> into the deep link,
+    # so even the fallback path eventually lands in the right place.
+    store_bot_username = await repo.get_secret("STORE_BOT_USERNAME")
     store_url = await repo.get_secret("STORE_URL")
-    if not store_url:
-        log.error("STORE_URL missing from np_secrets")
+    if not store_bot_username and not store_url:
+        log.error("STORE_BOT_USERNAME and STORE_URL both missing from np_secrets")
         await update.message.reply_text(
             "the store is offline right now. try again later"
         )
@@ -501,9 +519,21 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Build URL with token. Append cleanly whether store_url already has a query.
-    sep = "&" if "?" in store_url else "?"
-    link = f"{store_url}{sep}t={token}"
+    if store_bot_username:
+        # Strip a stray '@' if the secret was saved with one.
+        handle = store_bot_username.lstrip("@")
+        link = f"https://t.me/{handle}?start=shop_{token}"
+    else:
+        # Backwards-compat fallback. The store-side redirect middleware will
+        # 302 this into the canonical deep link, so the customer still ends
+        # up in the Mini App — just with one extra hop. Append cleanly
+        # whether store_url already has a query.
+        sep = "&" if "?" in store_url else "?"
+        link = f"{store_url}{sep}t={token}"
+        log.warning(
+            "STORE_BOT_USERNAME missing from np_secrets; falling back to bare URL for user=%s",
+            u.id,
+        )
 
     await update.message.reply_text(
         "here is your store session\n\n"
