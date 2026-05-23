@@ -478,23 +478,33 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Preferred path: a Telegram deep link into the store bot. When the user
-    # taps it, Telegram opens @<STORE_BOT_USERNAME>, fires /start shop_<token>
-    # on the store side, which validates the grant against np_shop_access_grants
-    # and launches the Mini App with a real, signed initData payload — the
-    # only auth shape the storefront API accepts.
+    # Preferred path: a Telegram `startapp` deep link into the store bot's
+    # Main Web App. Form: `https://t.me/<STORE_BOT_USERNAME>?startapp=<token>`.
     #
-    # Background on why this isn't the bare https URL anymore: handing out
+    # When the user taps it, Telegram launches the registered Main Web App
+    # directly (no chat round-trip, no /start race condition on iOS) and
+    # surfaces the token to the client as `initDataUnsafe.start_param`. The
+    # storefront SPA reads it on boot and POSTs `/api/storefront/grants/redeem`
+    # which validates the token, stamps consumed_at, and enforces a strict
+    # chat_id match against the Telegram user we already verified via initData.
+    #
+    # Why not `?start=shop_<token>`: on iOS, returning users who already have
+    # the chat opened never see the `/start` payload fire — Telegram just
+    # re-opens the existing chat and silently relaunches the Mini App via
+    # the menu button, so the grant never gets consumed. `startapp` bypasses
+    # this entirely because the token rides inside initData, not as a chat
+    # command. We confirmed this against argylesweaters' chat tonight: 0
+    # `bot_start` events fired despite the SPA loading.
+    #
+    # Background on why this isn't the bare https URL: handing out
     # `https://<store-url>/?t=<token>` opens the SPA OUTSIDE Telegram, so the
     # mini-app has no window.Telegram.WebApp.initData, so every customer-API
-    # call 401s missing_init_data, so the page never finishes booting. We saw
-    # this in prod: 23 grants minted, 0 ever consumed; multiple customers
-    # locked out indefinitely.
+    # call 401s missing_init_data, so the page never finishes booting.
     #
     # STORE_BOT_USERNAME lives in np_secrets (e.g. "ArgyleApothecarie_bot").
-    # STORE_URL is kept as a graceful fallback — the store now also has a
-    # bare-URL redirect middleware that 302s ?t=<token> into the deep link,
-    # so even the fallback path eventually lands in the right place.
+    # STORE_URL is kept as a graceful fallback — the store has a bare-URL
+    # redirect middleware that 302s `?t=<token>` into the deep link, and the
+    # SPA also reads `?t=` directly as a belt-and-braces redemption path.
     store_bot_username = await repo.get_secret("STORE_BOT_USERNAME")
     store_url = await repo.get_secret("STORE_URL")
     if not store_bot_username and not store_url:
@@ -522,7 +532,7 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if store_bot_username:
         # Strip a stray '@' if the secret was saved with one.
         handle = store_bot_username.lstrip("@")
-        link = f"https://t.me/{handle}?start=shop_{token}"
+        link = f"https://t.me/{handle}?startapp={token}"
     else:
         # Backwards-compat fallback. The store-side redirect middleware will
         # 302 this into the canonical deep link, so the customer still ends
