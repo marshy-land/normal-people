@@ -85,10 +85,35 @@ PHONE_RE = re.compile(
 # SSN-like patterns (US): 9 digits with separators
 SSN_RE = re.compile(r"\b\d{3}[-\s]\d{2}[-\s]\d{4}\b")
 
-# US street address: number + street name + suffix
+# US street address: number + street-name BODY (with a capitalised proper-noun
+# token, so we don't catch idiomatic phrases like "16 hour drive" / "3 minute
+# walk" / "2 mile run") + street suffix.
+#
+# The body must contain at least one Capitalised word (A real street name like
+# "Main", "Oak", "Martin Luther King"). Phrases like "16 hour drive" have no
+# capitalised body word and are skipped.
 STREET_RE = re.compile(
-    r"\b\d{1,6}\s+[A-Za-z0-9\s]{2,40}\b(street|st|avenue|ave|road|rd|drive|dr|"
-    r"lane|ln|boulevard|blvd|court|ct|way|circle|cir|place|pl)\b",
+    # Lookahead that anchors at the same number: REQUIRES at least one
+    # Capitalised word in the address body (e.g. "Main", "Oak"). This is
+    # case-sensitive ON PURPOSE, so the rest of the match staying case-
+    # insensitive is fine.
+    r"\b\d{1,6}\s+"
+    r"(?=[A-Za-z0-9.\s]{1,40}?\b[A-Z][a-z]+\b)"
+    r"(?i:[A-Za-z0-9.\s]{2,40}?\s+"
+    r"(street|st|avenue|ave|road|rd|drive|dr|"
+    r"lane|ln|boulevard|blvd|court|ct|way|circle|cir|"
+    r"place|pl|highway|hwy|parkway|pkwy|terrace|ter)\b)",
+)
+
+# Common idioms that must never count as a street address, regardless of regex.
+# Belt-and-braces: even if the lookahead above lets one slip, this scrubs it.
+_STREET_IDIOM_RE = re.compile(
+    r"\b\d{1,6}\s+"
+    r"(hour|hours|hr|hrs|minute|minutes|min|mins|second|seconds|sec|secs|"
+    r"mile|miles|mi|kilometre|kilometres|kilometer|kilometers|km|kms|"
+    r"year|years|yr|yrs|month|months|day|days|week|weeks|night|nights|"
+    r"block|blocks|step|steps|lap|laps)\s+"
+    r"(drive|ride|walk|run|jog|hike|trip|flight|sprint|swim|cruise|tour)\b",
     re.IGNORECASE,
 )
 
@@ -111,7 +136,9 @@ def detect_doxxing(text: str) -> Optional[Detection]:
             reason="message contains a phone number",
         )
 
-    if STREET_RE.search(text):
+    # Skip the address check entirely if the message contains an idiomatic
+    # "N <time/distance unit> drive/walk/etc." phrase — these are not addresses.
+    if not _STREET_IDIOM_RE.search(text) and STREET_RE.search(text):
         return Detection(
             rule_code="doxxing.address",
             severity="block",
