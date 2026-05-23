@@ -78,8 +78,32 @@ def detect_spam(text: str) -> Optional[Detection]:
 # --- detector 2: doxxing patterns ----------------------------------------
 
 # US phone number patterns. International is harder; v1 catches NANP only.
+# Telegram chat_ids are 9-12 digit bare integers starting with 1-9 (some
+# of which collide with NANP phone shapes). Real doxxing usually formats the
+# number with separators or a country-code prefix. We require AT LEAST ONE
+# of: a `+` prefix, parentheses around the area code, or an explicit
+# separator between any of the three NANP groups. Bare 10-digit runs are
+# treated as non-phones (could be chat_ids, order numbers, timestamps).
 PHONE_RE = re.compile(
-    r"\b(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b"
+    r"(?:"
+    # +1 with optional separator
+    r"\+\s?1[\s.\-]?\(?[2-9]\d{2}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}"
+    r"|"
+    # (NXX) NXX-XXXX style — parentheses present
+    r"\(?[2-9]\d{2}\)[\s.\-]?\d{3}[\s.\-]?\d{4}"
+    r"|"
+    # NXX-NXX-XXXX or NXX.NXX.XXXX or NXX NXX XXXX — at least one separator required
+    r"[2-9]\d{2}[\s.\-]\d{3}[\s.\-]\d{4}"
+    r")"
+)
+
+# Operational-log context: lines/messages that are clearly bot output or
+# admin diagnostic prints. Phone regex must NOT fire on these.
+ADMIN_LOG_CONTEXT_RE = re.compile(
+    r"(?:\bchat_id\s*[:=]|\bcluster\s*[:=]|\buser_id\s*[:=]|"
+    r"\bid\s*[:=]\s*\d|\bTELEGRAM ID|SUSPECT AT GATE|WATCH ALERT|"
+    r"🆔|🛰)",
+    re.IGNORECASE,
 )
 
 # SSN-like patterns (US): 9 digits with separators
@@ -129,7 +153,9 @@ def detect_doxxing(text: str) -> Optional[Detection]:
             reason="message contains a social security number pattern",
         )
 
-    if PHONE_RE.search(text):
+    # Skip phone detection in admin/bot diagnostic contexts where bare digit
+    # runs are chat_ids/cluster IDs, not phone numbers.
+    if not ADMIN_LOG_CONTEXT_RE.search(text) and PHONE_RE.search(text):
         return Detection(
             rule_code="doxxing.phone",
             severity="block",
