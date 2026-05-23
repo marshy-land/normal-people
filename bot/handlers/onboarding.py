@@ -554,6 +554,70 @@ async def cmd_shop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+# --- /earnings -------------------------------------------------------------
+
+async def cmd_earnings(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """DM-only. Tier-2 certified users see lifetime referral points earned.
+
+    No team-code surface, no payouts, no level breakdown. One number: total
+    points credited to this chat_id across all referral activity, plus the
+    referral counters so people can see how the number maps to behavior.
+    """
+    if update.effective_chat.type != "private":
+        return  # DM-only
+
+    u = update.effective_user
+    user_row = await repo.get_user(u.id)
+    if not user_row or (user_row.get("current_tier") or 0) < 2:
+        await update.message.reply_text(
+            "earnings are tracked once you are in the floor. "
+            "send /start, get through the airlock, /certify, then come back"
+        )
+        return
+
+    try:
+        s = await repo.get_earnings_summary(u.id)
+    except Exception:
+        log.exception("get_earnings_summary failed for user=%s", u.id)
+        await update.message.reply_text(
+            "couldn't pull your numbers right now. try again in a minute"
+        )
+        return
+
+    lifetime_pts = s["lifetime_pts"]
+    total_refs   = s["total_referrals"]
+    qualified    = s["total_qualified"]
+    quarantined  = s["quarantined_count"]
+    last_at      = s["last_earned_at"]
+
+    if lifetime_pts == 0 and total_refs == 0:
+        await update.message.reply_text(
+            "nothing tabulated yet\n\n"
+            "share /ref with people you actually vouch for. "
+            "points credit when they cross the spend threshold"
+        )
+        return
+
+    last_line = (
+        f"last credit: {last_at.strftime('%Y-%m-%d %H:%M UTC')}\n"
+        if last_at else ""
+    )
+    quarantine_line = (
+        f"quarantined: {quarantined}\n" if quarantined else ""
+    )
+
+    await update.message.reply_text(
+        "your earnings — lifetime\n\n"
+        f"points:     {lifetime_pts:,}\n"
+        f"referrals:  {total_refs} ({qualified} qualified)\n"
+        f"{quarantine_line}"
+        f"{last_line}"
+        "\n"
+        "points accrue when a referee crosses the spend threshold. "
+        "no leaderboard, no public counters"
+    )
+
+
 # --- /status ---------------------------------------------------------------
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -593,6 +657,7 @@ def register(application) -> None:
     application.add_handler(CommandHandler("certify", cmd_certify))
     application.add_handler(CommandHandler("ref", cmd_ref))
     application.add_handler(CommandHandler("shop", cmd_shop))
+    application.add_handler(CommandHandler("earnings", cmd_earnings))
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CallbackQueryHandler(on_accept_protocols, pattern="^accept_protocols$"))
     application.add_handler(CallbackQueryHandler(on_reverify_accept, pattern="^reverify_accept$"))

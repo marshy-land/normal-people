@@ -265,6 +265,65 @@ async def issue_shop_token(chat_id: int, ttl_hours: int) -> tuple[str, datetime]
     return token, expires_at
 
 
+async def get_earnings_summary(chat_id: int) -> dict:
+    """Return lifetime referral earnings for a user, keyed on telegram chat_id.
+
+    All values are derived from the points-based system:
+      - np_referral_earnings  (per-event points credits, any level)
+      - np_referral_codes     (referral counters)
+      - np_referrals          (per-referee state, for quarantine signal)
+
+    Returns a dict with stable keys even when the user has no activity yet:
+        {
+          'lifetime_pts':       int,   # sum of earned_pts across all levels
+          'events':             int,   # count of earning events
+          'total_referrals':    int,   # people who joined via this user's code
+          'total_qualified':    int,   # of those, how many crossed the spend threshold
+          'quarantined_count':  int,   # referrals currently flagged
+          'last_earned_at':     datetime | None,
+        }
+    """
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            select
+              coalesce(sum(e.earned_pts), 0)::bigint   as lifetime_pts,
+              count(e.id)::bigint                       as events,
+              max(e.earned_at)                          as last_earned_at
+            from np_referral_earnings e
+            where e.earner_chat_id = $1
+            """,
+            chat_id,
+        )
+        code_row = await conn.fetchrow(
+            """
+            select
+              coalesce(total_referrals, 0)::bigint  as total_referrals,
+              coalesce(total_qualified, 0)::bigint  as total_qualified
+            from np_referral_codes
+            where chat_id = $1
+            """,
+            chat_id,
+        )
+        quarantined = await conn.fetchval(
+            """
+            select count(*)::bigint
+            from np_referrals
+            where referrer_chat_id = $1 and is_quarantined = true
+            """,
+            chat_id,
+        )
+
+    return {
+        "lifetime_pts":      int(row["lifetime_pts"]) if row else 0,
+        "events":            int(row["events"]) if row else 0,
+        "total_referrals":   int(code_row["total_referrals"]) if code_row else 0,
+        "total_qualified":   int(code_row["total_qualified"]) if code_row else 0,
+        "quarantined_count": int(quarantined or 0),
+        "last_earned_at":    row["last_earned_at"] if row else None,
+    }
+
+
 async def get_secret(name: str) -> Optional[str]:
     """Read a runtime config value from np_secrets. Caller treats missing as None."""
     async with get_pool().acquire() as conn:
