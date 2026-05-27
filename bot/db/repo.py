@@ -505,6 +505,34 @@ async def mark_intro_completed(user_id: int) -> None:
         )
 
 
+async def mark_left_floor(user_id: int) -> None:
+    """Called when a chat_member event tells us a user left/was kicked/etc. from
+    The Floor. We soft-downgrade current_tier 2 -> 1 and clear joined_floor_at
+    so the count + downstream invariants reflect reality. We deliberately do
+    NOT clear certified_at — the audit trail of their certify stays intact."""
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            """
+            update np_users
+               set current_tier = 1,
+                   joined_floor_at = null
+             where user_id = $1
+               and current_tier = 2
+            """,
+            user_id,
+        )
+
+
+async def get_tier2_user_ids() -> list[int]:
+    """Returns the chat_ids of users currently marked Tier-2 and not banned.
+    Used by the weekly reconcile sweeper."""
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select user_id from np_users where current_tier = 2 and coalesce(is_banned, false) = false"
+        )
+        return [r["user_id"] for r in rows]
+
+
 async def touch_last_floor_msg(user_id: int) -> None:
     async with get_pool().acquire() as conn:
         await conn.execute(

@@ -74,6 +74,27 @@ async def on_chat_member_update(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         old_status in (None, "left", "kicked", "restricted")
         and new_status == "member"
     )
+    # "member-ish" statuses keep the user on the Floor; everything else is a
+    # leave/kick/restriction-with-removal. "restricted" CAN mean still-in-chat;
+    # the python-telegram-bot ChatMemberRestricted exposes is_member for that
+    # distinction. Default to True if the lib didn't surface it.
+    new_is_member = getattr(new, "is_member", None)
+    old_was_member = old_status in ("member", "administrator", "creator") or (
+        old_status == "restricted" and getattr(old, "is_member", True)
+    )
+    new_is_present = new_status in ("member", "administrator", "creator") or (
+        new_status == "restricted" and (new_is_member if new_is_member is not None else True)
+    )
+    left_floor = old_was_member and not new_is_present
+
+    if left_floor:
+        log.info("Floor leave: user_id=%s (@%s) %s -> %s",
+                 user.id, user.username, old_status, new_status)
+        try:
+            await repo.mark_left_floor(user.id)
+        except Exception:
+            log.exception("mark_left_floor failed for user=%s", user.id)
+        return
 
     if not became_member:
         return
