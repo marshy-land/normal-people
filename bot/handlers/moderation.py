@@ -450,6 +450,103 @@ async def cmd_modtest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+# --- /banids: admin batch ban by user_id ----------------------------------
+
+async def cmd_banids(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Permanently ban one or more users by Telegram user_id.
+
+    Usage (DM or any chat the admin can run commands in):
+        /banids 123 456 789
+        /banids 123,456,789
+
+    For each id: ban from the Floor supergroup and the Library channel
+    (a real ban, not the re-invitable ban+unban the anti-lurk jobs use),
+    set is_banned, and log to np_watch_actions. Admin-gated.
+    """
+    cfg: Config = ctx.bot_data["config"]
+    actor = update.effective_user
+
+    # Admin gate. In a group, defer to chat-admin status; in DM, only
+    # bootstrap admins qualify (there is no chat to check membership against).
+    if actor.id in cfg.bootstrap_admin_ids:
+        authorized = True
+    elif update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+        authorized = await _is_authorized_admin(update, ctx)
+    else:
+        authorized = False
+    if not authorized:
+        log.info("non-admin %s tried /banids", actor.id)
+        return
+
+    raw = " ".join(ctx.args or [])
+    ids: list[int] = []
+    for tok in raw.replace(",", " ").split():
+        try:
+            ids.append(int(tok))
+        except ValueError:
+            continue
+    # de-dupe, preserve order
+    seen: set[int] = set()
+    ids = [i for i in ids if not (i in seen or seen.add(i))]
+
+    if not ids:
+        try:
+            await update.message.reply_text(
+                "usage: /banids <user_id> [<user_id> ...]  (space- or comma-separated)"
+            )
+        except Exception:
+            pass
+        return
+
+    banned, failed = [], []
+    for uid in ids:
+        floor_ok = lib_ok = False
+        try:
+            await ctx.bot.ban_chat_member(chat_id=cfg.tier2_group_id, user_id=uid)
+            floor_ok = True
+        except Exception as e:
+            log.warning("/banids: Floor ban failed for %s: %s", uid, e)
+        try:
+            await ctx.bot.ban_chat_member(chat_id=cfg.tier1_channel_id, user_id=uid)
+            lib_ok = True
+        except Exception as e:
+            log.warning("/banids: Library ban failed for %s: %s", uid, e)
+
+        # Persist ban flag + audit regardless of whether the user was
+        # currently present in a channel (banning a non-member still
+        # blocks future joins, which is the intent).
+        try:
+            await repo.set_banned(uid)
+        except Exception as e:
+            log.warning("/banids: set_banned failed for %s: %s", uid, e)
+        try:
+            await repo.log_watch_action(
+                uid, "admin_ban",
+                f"Manual batch ban by admin {actor.id}. "
+                f"floor_ban={floor_ok} library_ban={lib_ok}.",
+                "argyle",
+            )
+        except Exception as e:
+            log.warning("/banids: watch log failed for %s: %s", uid, e)
+
+        if floor_ok or lib_ok:
+            banned.append(uid)
+        else:
+            # Telegram rejected both bans; flag/audit kept but report it.
+            failed.append(uid)
+        log.info("/banids: %s floor=%s library=%s", uid, floor_ok, lib_ok)
+
+    lines = [f"banned {len(banned)}/{len(ids)} user(s)."]
+    if banned:
+        lines.append("banned: " + ", ".join(str(i) for i in banned))
+    if failed:
+        lines.append("telegram ban failed (flag still set): " + ", ".join(str(i) for i in failed))
+    try:
+        await update.message.reply_text("\n".join(lines))
+    except Exception:
+        pass
+
+
 # --- Registration ----------------------------------------------------------
 
 def register(application) -> None:
@@ -457,6 +554,7 @@ def register(application) -> None:
     application.add_handler(CommandHandler("warn2", _make_warn_handler(2)))
     application.add_handler(CommandHandler("warn3", _make_warn_handler(3)))
     application.add_handler(CommandHandler("modtest", cmd_modtest))
+    application.add_handler(CommandHandler("banids", cmd_banids))
 
     # Mod review buttons
     application.add_handler(CallbackQueryHandler(
