@@ -38,31 +38,6 @@ REVERIFY_INTRO = (
     "to get your voice back agree to them again"
 )
 
-# three agreement prompts, one per step
-CERTIFY_PROMPTS = [
-    (
-        "everyone is equal\n\n"
-        "no guru no founder no priest with a private line to anything real\n"
-        "every idea here is open to peer review including yours\n\n"
-        "do you accept this"
-    ),
-    (
-        "you will not harm\n\n"
-        "not with your words not with your actions not with what you share\n"
-        "a wrong number kills someone a wrong story ruins them\n"
-        "if you don't know something for sure say so\n\n"
-        "do you accept this"
-    ),
-    (
-        "you are here to help others\n\n"
-        "information food medicine shelter time attention\n"
-        "when one of us learns something we share it\n"
-        "when one of us is in trouble we help\n"
-        "this is the only thing that has ever worked\n\n"
-        "do you accept this"
-    ),
-]
-
 
 # --- /start ----------------------------------------------------------------
 
@@ -239,16 +214,11 @@ async def on_captcha_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    if not user_row.get("certified_at"):
-        # Read the library, then send /certify.
-        await update.message.reply_text(
-            "you have read-access. when you are ready to speak, send /certify here"
-        )
-        return
-
-    # Fully certified — text in DM is nothing to act on.
+    # accepted_protocols_at implies they were issued a Floor invite at the
+    # manifesto step. Free text in DM is nothing to act on.
     await update.message.reply_text(
-        "you already have full access. talk in the group, not here"
+        "you already have full access. talk in the group, not here\n"
+        "if you never got your invite send /start"
     )
 
 
@@ -264,13 +234,19 @@ async def on_accept_protocols(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         await q.edit_message_text("that has expired. send /start to begin again")
         return
 
+    # Accepting the three agreements here is now the full gate. We mark the
+    # user protocols-accepted AND certified in one shot (the three agreements
+    # shown above are the same contract /certify used to re-ask), bump them to
+    # tier 2, and hand out a single-use invite straight to The Floor. No
+    # Library detour, no /certify questionnaire, no post-certify hold window.
     await repo.mark_protocols_accepted(u.id)
+    await repo.mark_certified(u.id)
     try:
         invite = await issue_single_use_invite(
             bot=ctx.bot,
-            chat_id=cfg.tier1_channel_id,
+            chat_id=cfg.tier2_group_id,
             user_id=u.id,
-            target_tier=1,
+            target_tier=2,
             ttl_seconds=cfg.invite_ttl_seconds,
         )
     except Exception as e:
@@ -278,14 +254,13 @@ async def on_accept_protocols(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         await q.edit_message_text(f"something went wrong issuing your invite: {e}")
         return
 
-    ctx.user_data["state"] = "in_tier1"
+    ctx.user_data["state"] = "in_tier2"
     await q.edit_message_text(
         "thank you. here is the way in\n\n"
         f"this link works once and only for the next {cfg.invite_ttl_seconds // 60} minutes\n"
         f"{invite}\n\n"
-        "it will take you to a quiet reading space\n"
-        "sit with what is there\n"
-        "when you are ready to speak come back here and send /certify",
+        "it takes you straight to the floor\n"
+        "read the room first, then help where you can",
         disable_web_page_preview=True,
     )
 
@@ -293,87 +268,27 @@ async def on_accept_protocols(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
 # --- /certify --------------------------------------------------------------
 
 async def cmd_certify(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Legacy no-op. The three-agreement gate now lives entirely at the
+    manifesto "i accept" step, which issues the Floor invite directly. This
+    command is kept registered only so old links/pins that reference /certify
+    don't error out — it just reports the user's current state.
+    """
     u = update.effective_user
     user = await repo.get_user(u.id)
-    if not user or not user.get("accepted_protocols_at"):
-        await update.message.reply_text(
-            "you need to send /start and accept the three agreements first"
-        )
-        return
-    if user.get("certified_at"):
+    if user and user.get("certified_at"):
         await update.message.reply_text("you already have full access. you are good")
         return
-
-    ctx.user_data["certify_step"] = 0
-    await _send_certify_prompt(update, ctx, step=0)
-
-
-async def _send_certify_prompt(update, ctx, step: int) -> None:
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("yes", callback_data=f"certify_agree_{step}"),
-        InlineKeyboardButton("no",  callback_data=f"certify_deny_{step}"),
-    ]])
-    text = CERTIFY_PROMPTS[step]
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=kb)
-    else:
-        await update.message.reply_text(text, reply_markup=kb)
-
-
-async def on_certify_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    q = update.callback_query
-    await q.answer()
-    parts = q.data.split("_")
-    action, step = parts[1], int(parts[2])
-
-    if action == "deny":
-        ctx.user_data.pop("certify_step", None)
-        await q.edit_message_text(
-            "that is okay\n"
-            "you can still read everything in the quiet space\n"
-            "when you are ready send /certify again"
+    if user and user.get("accepted_protocols_at"):
+        # Accepted the agreements but somehow no invite — nudge them to /start
+        # which will re-issue from the manifesto step.
+        await update.message.reply_text(
+            "the floor invite is handed out the moment you accept the three "
+            "agreements. if you missed your link send /start"
         )
         return
-
-    next_step = step + 1
-    if next_step < len(CERTIFY_PROMPTS):
-        ctx.user_data["certify_step"] = next_step
-        await _send_certify_prompt(update, ctx, step=next_step)
-        return
-
-    # All 3 agreed → certified, but entry to The Floor goes through a hold
-    # window (default 6h; longer for soft-booted users — see services/holds.py).
-    u = q.from_user
-    cfg: Config = ctx.bot_data["config"]
-    await repo.mark_certified(u.id)
-    try:
-        hold = await holds.enqueue_post_certify_hold(u.id, u.username, u.first_name)
-    except Exception as e:
-        log.exception("enqueue_post_certify_hold failed")
-        await q.edit_message_text(f"something went wrong starting your hold: {e}")
-        return
-
-    hold_hours  = int(hold.get("hold_hours") or 6)
-    hold_reason = hold.get("hold_reason") or "default"
-    deliver_at  = hold.get("deliver_at")
-    deliver_when = (
-        deliver_at.strftime("%Y-%m-%d %H:%M UTC") if deliver_at is not None else "soon"
-    )
-    reason_blurb = {
-        "default":                  "standard new-member trust window",
-        "soft_boot_reentry":        "you were soft-booted previously",
-        "soft_boot_identity_change":"you were soft-booted and your name has changed since",
-    }.get(hold_reason, "trust window")
-
-    ctx.user_data.pop("certify_step", None)
-    await q.edit_message_text(
-        "agreements logged\n\n"
-        f"hold: {hold_hours} hours ({reason_blurb})\n"
-        f"your invite link arrives here: {deliver_when}\n\n"
-        "no action required\n"
-        "messaging the bot doesn't change the timer\n"
-        "send /status anytime to see the countdown",
-        disable_web_page_preview=True,
+    await update.message.reply_text(
+        "there is nothing to certify anymore. send /start and accept the "
+        "three agreements — that is the whole door now"
     )
 
 
@@ -661,7 +576,6 @@ def register(application) -> None:
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CallbackQueryHandler(on_accept_protocols, pattern="^accept_protocols$"))
     application.add_handler(CallbackQueryHandler(on_reverify_accept, pattern="^reverify_accept$"))
-    application.add_handler(CallbackQueryHandler(on_certify_button, pattern="^certify_(agree|deny)_\\d+$"))
     application.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
         on_captcha_reply,
